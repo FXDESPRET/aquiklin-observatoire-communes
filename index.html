@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Aquiklin · Observatoire Communes</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<style>
+:root{
+  /* identité aquiklin.be : bleu nuit #363F47, vert d'eau #4a7c59, vert clair #A5D542, sable #f4efe4 */
+  --bg:#f7f5ef; --panel:#ffffff; --ink:#2b333a; --ink2:#363F47; --muted:#5c6b66; --line:#e6e0cf;
+  --accent:#4a7c59; --accent2:#3d6a4b; --accent-ink:#ffffff; --soft:#eef3ea; --soft2:#faf8f2;
+  --ok:#2e7d4f; --ok-bg:#e5f3ea; --ko:#b23a2a; --ko-bg:#fbe9e6; --warn:#9a6a00; --warn-bg:#fdf3dc; --info:#2f6fa8; --info-bg:#e6f0fa;
+  --shadow:0 2px 12px rgba(15,48,42,.08); --radius:10px; --serif:Georgia,'Iowan Old Style',serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1715; --panel:#17211e; --ink:#e3eeea; --ink2:#bfd0ca; --muted:#8fa49c; --line:#2a3834; --soft:#1d2d29; --soft2:#14201d;
+    --accent:#2fb39d; --accent2:#5fd0bc; --accent-ink:#0f1715;
+    --ok:#6fd39a; --ok-bg:#16301f; --ko:#ff8a78; --ko-bg:#3a1c17; --warn:#f0c560; --warn-bg:#3a2f12; --info:#8cc3f2; --info-bg:#132a3d;
+    --shadow:0 2px 12px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1715; --panel:#17211e; --ink:#e3eeea; --ink2:#bfd0ca; --muted:#8fa49c; --line:#2a3834; --soft:#1d2d29; --soft2:#14201d;
+  --accent:#2fb39d; --accent2:#5fd0bc; --accent-ink:#0f1715;
+  --ok:#6fd39a; --ok-bg:#16301f; --ko:#ff8a78; --ko-bg:#3a1c17; --warn:#f0c560; --warn-bg:#3a2f12; --info:#8cc3f2; --info-bg:#132a3d;
+  --shadow:0 2px 12px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+header{position:sticky;top:0;z-index:1000;background:var(--panel);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;padding:10px 18px;flex-wrap:wrap}
+header .brand{font-family:var(--serif);font-size:19px;color:var(--ink2);text-decoration:none;white-space:nowrap}
+header .brand b{color:var(--accent)}
+header nav{display:flex;gap:6px;flex-wrap:wrap}
+header nav a{padding:6px 10px;border-radius:8px;text-decoration:none;color:var(--ink2)}
+header nav a.on{background:var(--soft);color:var(--accent2);font-weight:600}
+header .sp{flex:1}
+header .who{color:var(--muted);font-size:13px}
+main{max-width:1400px;margin:0 auto;padding:18px}
+h1{font-family:var(--serif);font-weight:normal;font-size:26px;margin:4px 0 6px;color:var(--ink2)}
+h2{font-size:16px;margin:0 0 10px;color:var(--ink2)}
+.muted{color:var(--muted)} .small{font-size:13px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:16px}
+.grid{display:grid;gap:16px}
+@media(min-width:1000px){.g2{grid-template-columns:1.25fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}}
+button,.btn{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 12px;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+button:hover,.btn:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.danger{border-color:var(--ko);color:var(--ko)}
+button:disabled{opacity:.5;cursor:not-allowed}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--soft2);border:1px solid var(--line);border-radius:8px;padding:7px 9px;width:100%}
+textarea{min-height:120px;resize:vertical}
+label{display:block;font-size:13px;color:var(--muted);margin:8px 0 3px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.tbl-wrap{overflow:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{position:sticky;top:0;background:var(--soft2);font-weight:600;color:var(--ink2);white-space:nowrap;cursor:pointer;user-select:none}
+th.num,td.num{text-align:right}
+tr.click:hover td{background:var(--soft);cursor:pointer}
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:12px;border:1px solid var(--line);background:var(--soft2);white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok);border-color:transparent}
+.pill.ko{background:var(--ko-bg);color:var(--ko);border-color:transparent}
+.pill.warn{background:var(--warn-bg);color:var(--warn);border-color:transparent}
+.pill.info{background:var(--info-bg);color:var(--info);border-color:transparent}
+.score{font-weight:700;color:var(--accent2);text-decoration:underline dotted;cursor:pointer}
+.bar{height:6px;border-radius:3px;background:var(--soft);overflow:hidden;margin-top:3px}
+.bar i{display:block;height:100%;background:var(--accent)}
+#map{height:460px;border-radius:var(--radius);border:1px solid var(--line)}
+.sites{max-height:460px;overflow:auto}
+.site{padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;cursor:pointer;background:var(--soft2)}
+.site.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--soft)}
+.tabs{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
+.tabs button{border-radius:99px;padding:4px 12px;font-size:13px}
+.tabs button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.checks li{list-style:none;margin:4px 0;padding-left:0}
+.checks{padding:0;margin:0}
+.toast{position:fixed;right:18px;bottom:18px;z-index:3000;max-width:440px;padding:12px 14px;border-radius:10px;box-shadow:var(--shadow);background:var(--panel);border:1px solid var(--line)}
+.toast.ko{background:var(--ko-bg);color:var(--ko)} .toast.ok{background:var(--ok-bg);color:var(--ok)}
+.modal{position:fixed;inset:0;z-index:2500;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
+.modal .card{max-width:760px;width:100%}
+.mail{white-space:pre-wrap;font-family:var(--serif);font-size:15px;background:var(--soft2);border:1px solid var(--line);border-radius:8px;padding:14px}
+.login{max-width:380px;margin:60px auto}
+.kpi{display:flex;gap:10px;flex-wrap:wrap}
+.kpi div{background:var(--soft2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;min-width:120px}
+.kpi b{display:block;font-size:20px;color:var(--ink2)}
+.leaflet-container{background:var(--soft)}
+@media(max-width:640px){main{padding:12px}#map{height:320px}}
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="#/"><b>Aquiklin</b> · Observatoire Communes</a>
+  <nav id="nav"></nav>
+  <span class="sp"></span>
+  <span class="who" id="who"></span>
+</header>
+<main id="app"><p class="muted">Chargement…</p></main>
+
+<script>
+/* =====================================================================
+   AQUIKLIN · OBSERVATOIRE COMMUNES — back-office (v0.1 pilote)
+   Application indépendante de l'Observatoire actuel.
+   RÈGLE : ce code n'accède qu'aux tables et fonctions préfixées oc_.
+   Toute autre table ou fonction est refusée avant même d'appeler la base.
+   ===================================================================== */
+const CFG = window.OC_CONFIG;
+const sb = window.supabase.createClient(CFG.SB_URL, CFG.SB_KEY, { auth: { persistSession: true, storageKey: CFG.AUTH_STORAGE_KEY } });
+
+const DB = {
+  from(t){ if(!/^oc_/.test(t)) throw new Error("Accès refusé par l'Observatoire Communes : table " + t); return sb.from(t); },
+  async rpc(f, args){ if(!/^oc_/.test(f)) throw new Error("Accès refusé par l'Observatoire Communes : fonction " + f);
+    const { data, error } = await sb.rpc(f, args || {}); if(error) throw error; return data; }
+};
+async function q(promise){ const { data, error } = await promise; if(error) throw error; return data; }
+
+/* ---------------- utilitaires ---------------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = (n, d=0) => n == null || n === "" ? "—" : Number(n).toLocaleString("fr-BE", {maximumFractionDigits:d, minimumFractionDigits:0});
+const today = () => new Date().toISOString().slice(0,10);
+const dateFr = d => d ? new Date(d).toLocaleDateString("fr-BE", {day:"2-digit", month:"2-digit", year:"numeric"}) : "—";
+function toast(msg, kind=""){ const t = document.createElement("div"); t.className = "toast " + kind; t.textContent = msg; document.body.appendChild(t); setTimeout(()=>t.remove(), kind==="ko" ? 9000 : 3500); }
+function errMsg(e){ return (e && (e.message || e.details || e.hint)) || String(e); }
+function modal(html){ const m = document.createElement("div"); m.className = "modal"; m.innerHTML = `<div class="card">${html}<div class="row" style="justify-content:flex-end;margin-top:12px"><button data-close>Fermer</button></div></div>`;
+  m.addEventListener("click", ev => { if(ev.target === m || ev.target.hasAttribute("data-close")) m.remove(); }); document.body.appendChild(m); return m; }
+async function copy(text, label){ try{ await navigator.clipboard.writeText(text); toast(label + " copié", "ok"); }catch(e){ toast("Copie impossible : sélectionnez le texte manuellement", "ko"); } }
+
+const VERIFS = [
+  ["lentilles probables","ok"], ["lentilles confirmées terrain","ok"], ["autre végétation","warn"], ["bassin technique / lagunage","info"],
+  ["station d'épuration","info"], ["asséché ou comblé","warn"], ["eau libre","warn"], ["incertain",""], ["à faire",""]
+];
+const verifCls = v => (VERIFS.find(x=>x[0]===v)||[,""])[1];
+const CAT_LBL = { public_etabli:"Public établi", probablement_public:"Probablement public", a_verifier:"Statut non confirmé", prive:"Privé", non_pertinent:"Non pertinent" };
+const GEST_TYPES = ["Commune","CPAS","Régie / autre pouvoir local","Province","Région wallonne","État fédéral","Intercommunale","Fabrique d'église","Autre organisme public"];
+const FONCTIONS = ["Bourgmestre","Échevin","Président de CPAS","Conseiller communal","Directeur général","Service environnement","Service travaux","Éco-conseiller","Autre"];
+const STATUTS_COM = ["à étudier","à contacter","contactée","rendez-vous","rapport envoyé","partenaire","sans suite"];
+const evoCls = e => /défavorable/.test(e) ? "ko" : /persistante|historique/.test(e) ? "warn" : /favorable|aucun problème/.test(e) ? "ok" : "";
+const ieCls = e => e === "Fort" ? "ok" : e === "Moyen" ? "info" : e === "Faible" ? "warn" : "";
+
+/* ---------------- authentification ---------------- */
+let USER = null;
+async function boot(){
+  const { data } = await sb.auth.getSession(); USER = data.session?.user || null;
+  if(!USER) return renderLogin();
+  let admin = false; try{ admin = await DB.rpc("oc_is_admin"); }catch(e){}
+  if(!admin){ $("#app").innerHTML = `<div class="card login"><h2>Accès réservé</h2><p>Ce compte n'est pas autorisé.</p><button id="out">Se déconnecter</button></div>`; $("#out").onclick = logout; return; }
+  $("#who").innerHTML = `${esc(USER.email)} · <a href="#" id="lo">déconnexion</a>`; $("#lo").onclick = e => { e.preventDefault(); logout(); };
+  window.addEventListener("hashchange", route); route();
+}
+function renderLogin(){
+  $("#nav").innerHTML = ""; $("#who").textContent = "";
+  $("#app").innerHTML = `<div class="card login"><h1>Connexion</h1><p class="muted small">Accès réservé au personnel Aquiklin (même compte que l'Observatoire).</p>
+    <form id="lf"><label>Adresse e-mail</label><input id="le" type="email" autocomplete="username" required>
+    <label>Mot de passe</label><input id="lp" type="password" autocomplete="current-password" required>
+    <div style="margin-top:12px"><button class="primary" type="submit">Se connecter</button></div></form></div>`;
+  $("#lf").onsubmit = async ev => { ev.preventDefault();
+    const { error } = await sb.auth.signInWithPassword({ email: $("#le").value.trim(), password: $("#lp").value });
+    if(error) return toast("Connexion refusée : " + error.message, "ko"); boot(); };
+}
+async function logout(){ await sb.auth.signOut(); location.hash = ""; renderLogin(); }
+
+/* ---------------- routage ---------------- */
+function route(){
+  const h = location.hash.replace(/^#\/?/, "").split("/");
+  const navs = [["", "Tableau de prospection"], ["courriels", "Courriels"], ["aide", "Mode d'emploi"]];
+  $("#nav").innerHTML = navs.map(([k,l]) => `<a href="#/${k}" class="${(h[0]||"")===k ? "on" : ""}">${l}</a>`).join("");
+  try{
+    if(h[0] === "commune" && h[1]) return viewCommune(h[1], h[2]);
+    if(h[0] === "courriel" && h[1]) return viewCourriel(h[1]);
+    if(h[0] === "courriels") return viewCourriels();
+    if(h[0] === "aide") return viewAide();
+    return viewTableau();
+  }catch(e){ $("#app").innerHTML = `<div class="card"><b>Erreur :</b> ${esc(errMsg(e))}</div>`; }
+}
+
+/* =====================================================================
+   1. TABLEAU DE PROSPECTION
+   ===================================================================== */
+let TAB = { rows: [], sort: "score_global", dir: -1, pilotes: true };
+const COLS = [
+  ["nom","Commune",""], ["score_global","Score priorité","num"], ["score_probleme","Score problème","num"],
+  ["publics","Publics (B+C)","num"], ["publics_probleme","Publics à problème","num"], ["publics_probleme_confirmes","dont confirmés","num"],
+  ["sites_a_verifier_visuellement","Sites à vérifier","num"], ["evolution","Évolution",""], ["interet_env","Intérêt env.",""],
+  ["intensite_moyenne_pct","Intensité %","num"], ["detectes","A · détectées","num"], ["public_etabli","C · public établi","num"],
+  ["probablement_public","B · prob. public","num"], ["prive_non_pertinent","Privé / non pert.","num"], ["a_verifier","Non confirmé","num"]
+];
+async function viewTableau(){
+  $("#app").innerHTML = `<h1>Tableau de prospection</h1><p class="muted">Pièces d'eau publiques ou probablement publiques uniquement. Cliquez sur un score pour voir son calcul, sur une ligne pour ouvrir la commune.</p><div class="card"><p class="muted">Calcul en cours…</p></div>`;
+  try{ TAB.rows = await DB.rpc("oc_priorite_communes"); }catch(e){ $("#app .card").innerHTML = `<b>Erreur :</b> ${esc(errMsg(e))}`; return; }
+  drawTableau();
+}
+function drawTableau(){
+  const val = (r,k) => k === "interet_env" ? ({"Fort":3,"Moyen":2,"Faible":1}[r[k]]||0) : k === "evolution" ? (/défavorable/.test(r[k])?3:/persistante/.test(r[k])?2:/historique/.test(r[k])?1:0) : r[k];
+  let rows = TAB.rows.filter(r => !TAB.pilotes || r.pilote);
+  rows.sort((a,b) => { if(TAB.sort === "score_global" && a.profil_prioritaire !== b.profil_prioritaire) return a.profil_prioritaire ? -1 : 1;
+    const x = val(a,TAB.sort), y = val(b,TAB.sort); return (typeof x === "string" ? x.localeCompare(y,"fr") : (x??-1)-(y??-1)) * TAB.dir; });
+  const max = Math.max(1, ...rows.map(r=>r.score_global||0));
+  $("#app .card").innerHTML = `<div class="row" style="margin-bottom:10px"><label class="row" style="margin:0;color:var(--ink)"><input type="checkbox" id="pil" style="width:auto" ${TAB.pilotes?"checked":""}> Communes pilotes uniquement</label>
+    <span class="sp" style="flex:1"></span><span class="muted small">${rows.length} commune(s) · profil prioritaire affiché en premier</span></div>
+    <div class="tbl-wrap"><table><thead><tr>${COLS.map(([k,l,c]) => `<th class="${c}" data-k="${k}">${l}${TAB.sort===k ? (TAB.dir<0?" ▾":" ▴") : ""}</th>`).join("")}<th>Profil</th></tr></thead><tbody>
+    ${rows.map(r => `<tr class="click" data-ins="${esc(r.commune_ins)}">${COLS.map(([k,,c]) => {
+      if(k === "nom") return `<td><b>${esc(r.nom)}</b></td>`;
+      if(k === "evolution") return `<td><span class="pill ${evoCls(r.evolution)}">${esc(r.evolution)}</span></td>`;
+      if(k === "interet_env") return `<td><span class="pill ${ieCls(r.interet_env)}">${esc(r.interet_env)}</span></td>`;
+      if(k === "score_global") return `<td class="num"><span class="score" data-detail="${esc(r.commune_ins)}">${fmt(r.score_global,1)}</span><div class="bar"><i style="width:${(r.score_global||0)/max*100}%"></i></div></td>`;
+      if(k === "score_probleme") return `<td class="num"><span class="score" data-detail="${esc(r.commune_ins)}">${fmt(r[k],1)}</span></td>`;
+      return `<td class="${c}">${fmt(r[k], k==="intensite_moyenne_pct"?1:0)}</td>`; }).join("")}
+      <td>${r.profil_prioritaire ? '<span class="pill ok">prioritaire</span>' : ""}</td></tr>`).join("")}
+    </tbody></table></div>`;
+  $("#pil").onchange = e => { TAB.pilotes = e.target.checked; drawTableau(); };
+  document.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => { const k = th.dataset.k; TAB.dir = TAB.sort === k ? -TAB.dir : (k==="nom"?1:-1); TAB.sort = k; drawTableau(); });
+  document.querySelectorAll("[data-detail]").forEach(s => s.onclick = ev => { ev.stopPropagation(); showDetail(TAB.rows.find(r => r.commune_ins === s.dataset.detail)); });
+  document.querySelectorAll("tr[data-ins]").forEach(tr => tr.onclick = () => location.hash = "#/commune/" + tr.dataset.ins);
+}
+function showDetail(r){
+  const d = r.detail || {}; const crit = arr => `<table><thead><tr><th>Critère</th><th class="num">Valeur</th><th>Règle</th><th class="num">Points</th></tr></thead><tbody>${(arr||[]).map(c =>
+    `<tr><td>${esc(c.critere)}</td><td class="num">${fmt(c.valeur,1)}</td><td class="muted small">${esc(c.regle)}</td><td class="num"><b>${fmt(c.points,1)}</b> / ${fmt(c.max)}</td></tr>`).join("")}</tbody></table>`;
+  modal(`<h1>${esc(r.nom)} — pourquoi ce score ?</h1>
+    <p><b>${esc(d.formule||"")}</b></p><p class="muted small">${esc(d.perimetre||"")}</p>
+    ${d.sites ? `<div class="kpi"><div><b>${d.sites.problemes}</b>sites à problème</div><div><b>${d.sites.confirmes_ete_ou_verifies}</b>confirmés (été ou vérifiés)</div><div><b>${d.sites.printemps_seul}</b>printemps seul (×0,5)</div><div><b>${d.sites.reste_a_verifier_visuellement}</b>à vérifier</div></div>` : ""}
+    <h2 style="margin-top:14px">Problème observé (${fmt(r.score_probleme,1)} / 100)</h2>${crit(d.probleme)}
+    <h2 style="margin-top:14px">Patrimoine public (${fmt(r.score_patrimoine,1)} / 100)</h2>${crit(d.patrimoine)}
+    <h2 style="margin-top:14px">Intérêt environnemental institutionnel : ${esc(d.interet?.niveau)} (${fmt(d.interet?.points)} pts)</h2>
+    <ul>${(d.interet?.engagements||[]).map(e => `<li>${esc(e.theme)} — <a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.titre)}</a> <span class="muted small">(vérifié le ${dateFr(e.verifie_le)})</span></li>`).join("") || '<li class="muted">Aucun engagement enregistré.</li>'}</ul>`);
+}
+
+/* =====================================================================
+   2. FICHE COMMUNE
+   ===================================================================== */
+let COM = null, SITES = [], MAP = null, MARKERS = {}, SEL = null, FILTRE = "verifier";
+const FILTRES = {
+  verifier: ["À vérifier", s => ["public_etabli","probablement_public"].includes(s.categorie) && ["actuel","recurrent","historique"].includes(s.situation) && s.verification_visuelle === "à faire"],
+  publics:  ["Publics (B+C)", s => ["public_etabli","probablement_public"].includes(s.categorie)],
+  verifies: ["Déjà vérifiés", s => s.verification_visuelle !== "à faire"],
+  step:     ["Stations d'épuration", s => s.verification_visuelle === "station d'épuration"],
+  signales: ["Proches d'une station", s => /Station d'épuration à/.test(s.notes||"")],
+  tous:     ["Tous", s => true]
+};
+async function viewCommune(ins, onglet){
+  $("#app").innerHTML = `<p class="muted">Chargement de la commune…</p>`;
+  try{
+    const [c, prio] = await Promise.all([ q(DB.from("oc_communes").select("*").eq("commune_ins", ins).single()), DB.rpc("oc_priorite_communes") ]);
+    COM = { ...c, prio: prio.find(r => r.commune_ins === ins) };
+    SITES = await DB.rpc("oc_sites_commune", { p_ins: ins });
+  }catch(e){ $("#app").innerHTML = `<div class="card"><b>Erreur :</b> ${esc(errMsg(e))}</div>`; return; }
+  const p = COM.prio || {};
+  const tab = onglet || "sites";
+  $("#app").innerHTML = `
+    <p class="small"><a href="#/">← Tableau de prospection</a></p>
+    <div class="row" style="align-items:flex-end"><h1 style="margin-right:10px">${esc(COM.nom)}</h1><span class="muted">${esc(COM.province||"")} · INS ${esc(COM.commune_ins)}</span>
+      <span style="flex:1"></span><label style="margin:0">Statut</label><select id="cst" style="width:auto">${STATUTS_COM.map(s => `<option ${s===COM.statut?"selected":""}>${s}</option>`).join("")}</select></div>
+    <div class="kpi" style="margin:8px 0 14px">
+      <div><b>${fmt(p.detectes)}</b>pièces d'eau détectées</div><div><b>${fmt(p.publics)}</b>publiques (B+C)</div>
+      <div><b>${fmt(p.publics_probleme)}</b>publiques à problème</div><div><b>${fmt(p.sites_a_verifier_visuellement)}</b>à vérifier</div>
+      <div><b><span class="score" id="sc">${fmt(p.score_global,1)}</span></b>score priorité</div><div><b>${esc(p.interet_env||"—")}</b>intérêt env.</div>
+    </div>
+    <div class="tabs" id="otabs">${[["sites","Sites et carte"],["contacts","Élus et contacts"],["engagements","Engagements"],["courriels","Courriels et démarches"]].map(([k,l]) => `<button data-t="${k}" class="${k===tab?"on":""}">${l}</button>`).join("")}</div>
+    <div id="ocontent"></div>`;
+  $("#cst").onchange = async e => { try{ await q(DB.from("oc_communes").update({ statut: e.target.value }).eq("commune_ins", ins)); toast("Statut enregistré", "ok"); }catch(er){ toast(errMsg(er), "ko"); } };
+  $("#sc").onclick = () => p.detail && showDetail(p);
+  document.querySelectorAll("#otabs button").forEach(b => b.onclick = () => { history.replaceState(null, "", `#/commune/${ins}/${b.dataset.t}`); document.querySelectorAll("#otabs button").forEach(x=>x.classList.toggle("on", x===b)); showOnglet(b.dataset.t); });
+  showOnglet(tab);
+}
+function showOnglet(t){ ({ sites: ongletSites, contacts: ongletContacts, engagements: ongletEngagements, courriels: ongletCourriels })[t](); }
+
+/* ---- 2a. Sites et carte ---- */
+function ongletSites(){
+  $("#ocontent").innerHTML = `<div class="grid g2"><div class="card" style="padding:10px"><div id="map"></div>
+      <p class="muted small" style="margin:8px 4px 0">Fond : orthophotos SPW (WalOnMap). Changez d'année avec le sélecteur en haut à droite. Couleur des points : vert = lentilles probables, bleu = station / bassin technique, orange = autre, gris = à vérifier.</p></div>
+    <div class="card"><div class="tabs" id="ftabs">${Object.entries(FILTRES).map(([k,[l,f]]) => `<button data-f="${k}" class="${k===FILTRE?"on":""}">${l} (${SITES.filter(f).length})</button>`).join("")}</div>
+      <div class="sites" id="slist"></div></div></div>
+    <div class="card" id="sdetail"><p class="muted">Sélectionnez un site dans la liste ou sur la carte.</p></div>`;
+  document.querySelectorAll("#ftabs button").forEach(b => b.onclick = () => { FILTRE = b.dataset.f; ongletSites(); });
+  initMap(); drawSiteList();
+}
+function siteColor(s){ const c = verifCls(s.verification_visuelle); return c==="ok" ? "#2e9d5a" : c==="info" ? "#2f80c9" : c==="warn" ? "#e08a1e" : (["actuel","recurrent"].includes(s.situation) ? "#a8321f" : "#8a948f"); }
+function initMap(){
+  if(MAP){ MAP.remove(); MAP = null; }
+  MAP = L.map("map", { zoomControl: true });
+  const wms = k => L.tileLayer.wms(`https://geoservices.wallonie.be/arcgis/services/IMAGERIE/ORTHO_${k}/MapServer/WMSServer`, { layers:"0", format:"image/jpeg", maxZoom:21, attribution:"© SPW – WalOnMap" });
+  const bases = { "Orthophoto la plus récente": wms("LAST"), "Orthophoto 2023 été": wms("2023_ETE"), "Orthophoto 2024": wms("2024"), "Infrarouge récent": wms("LAST_IR"),
+    "Plan OpenStreetMap": L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom:19, attribution:"© OpenStreetMap" }) };
+  bases["Orthophoto la plus récente"].addTo(MAP); L.control.layers(bases).addTo(MAP);
+  MARKERS = {}; const pts = [];
+  for(const s of SITES.filter(FILTRES[FILTRE][1])){ if(s.lat == null) continue;
+    const m = L.circleMarker([s.lat, s.lon], { radius: 7, color: "#fff", weight: 1.5, fillColor: siteColor(s), fillOpacity: .95 })
+      .bindTooltip(`${esc(s.rue||s.localite||"")} · ${fmt(s.surface_m2)} m² · ${esc(s.situation||"non analysé")}`).on("click", () => selectSite(s.obs_plan_eau_id)).addTo(MAP);
+    MARKERS[s.obs_plan_eau_id] = m; pts.push([s.lat, s.lon]); }
+  if(pts.length) MAP.fitBounds(pts, { padding: [30,30], maxZoom: 16 }); else MAP.setView([50.47, 4.87], 10);
+  setTimeout(() => MAP && MAP.invalidateSize(), 50);
+}
+function drawSiteList(){
+  const list = SITES.filter(FILTRES[FILTRE][1]).sort((a,b) => (["actuel","recurrent"].includes(b.situation) - ["actuel","recurrent"].includes(a.situation)) || (b.surface_m2||0)-(a.surface_m2||0));
+  $("#slist").innerHTML = list.length ? list.map(s => `<div class="site ${SEL===s.obs_plan_eau_id?"sel":""}" data-id="${s.obs_plan_eau_id}">
+      <div class="row"><b>${esc(s.rue || s.localite || "Sans adresse")}</b><span class="muted small">${fmt(s.surface_m2)} m²</span><span style="flex:1"></span><span class="pill ${verifCls(s.verification_visuelle)}">${esc(s.verification_visuelle)}</span></div>
+      <div class="small muted">${esc(CAT_LBL[s.categorie]||s.categorie)} · ${esc(s.situation||"non analysé")}${s.couverture_pct!=null?` · ${fmt(s.couverture_pct)} %`:""}${s.image_ref?` · image ${esc(s.image_ref)}`:""}${s.vu_en_ete?" · vu en été":""}</div></div>`).join("")
+    : `<p class="muted">Aucun site dans ce filtre.</p>`;
+  document.querySelectorAll("#slist .site").forEach(el => el.onclick = () => selectSite(el.dataset.id));
+}
+function selectSite(id){
+  SEL = id; const s = SITES.find(x => x.obs_plan_eau_id === id); if(!s) return; drawSiteList();
+  if(MAP && s.lat != null){ MAP.setView([s.lat, s.lon], 19); MARKERS[id]?.openTooltip(); }
+  const gmaps = `https://www.google.com/maps/@${s.lat},${s.lon},120m/data=!3m1!1e3`;
+  $("#sdetail").innerHTML = `<div class="grid g2"><div>
+      <h2>${esc(s.rue || s.localite || "Site")} <span class="muted small">· ${fmt(s.surface_m2)} m²</span></h2>
+      <p class="small"><span class="pill">${esc(CAT_LBL[s.categorie]||s.categorie)}</span> <span class="pill">${esc(s.gestionnaire_type||"")}</span> <span class="pill">confiance : ${esc(s.confiance||"")}</span></p>
+      <p class="small">Situation (Observatoire) : <b>${esc(s.situation||"non analysé")}</b>${s.couverture_pct!=null?` · couverture ${fmt(s.couverture_pct)} %`:""}${s.image_ref?` · image de référence ${esc(s.image_ref)}`:""} · ${s.vu_en_ete?"vu sur une image d'été":"<b>pas vu sur une image d'été</b>"}</p>
+      <p class="small muted">Source : ${esc(s.source||"")}${s.gestionnaire_nom?` · gestionnaire : ${esc(s.gestionnaire_nom)}`:""}</p>
+      ${s.notes ? `<p class="small"><span class="pill warn">${esc(s.notes)}</span></p>` : ""}
+      ${s.verification_note ? `<p class="small">Dernière vérification (${dateFr(s.verification_le)}) : ${esc(s.verification_note)}</p>` : ""}
+      <div class="row"><a class="btn" href="${gmaps}" target="_blank" rel="noopener">Vue satellite Google ↗</a>
+        <button id="b23">Voir l'orthophoto été 2023</button></div>
+    </div><div>
+      <h2>Ce que je vois</h2>
+      <div class="row" id="vbtns">${VERIFS.filter(v=>v[0]!=="à faire").map(([v,c]) => `<button data-v="${esc(v)}" class="${s.verification_visuelle===v?"primary":""}">${esc(v)}</button>`).join("")}</div>
+      <label>Note (ce que montre l'image)</label><input id="vnote" value="${esc(s.verification_note||"")}" placeholder="ex. tapis vert uniforme sur l'image d'été 2023">
+      <details style="margin-top:8px"><summary class="small">Gestionnaire connu avec une source fiable ? (le site passe en « public établi »)</summary>
+        <label>Type</label><select id="gtype"><option value="">— ne pas changer —</option>${GEST_TYPES.map(g => `<option>${esc(g)}</option>`).join("")}</select>
+        <label>Nom</label><input id="gnom" placeholder="ex. Commune de Floreffe">
+        <label>Source</label><input id="gsrc" placeholder="ex. service travaux (appel du 07/10/2026), cadastre, site communal"></details>
+    </div></div>`;
+  $("#b23").onclick = () => { MAP.eachLayer(l => { if(l.wmsParams) MAP.removeLayer(l); });
+    L.tileLayer.wms("https://geoservices.wallonie.be/arcgis/services/IMAGERIE/ORTHO_2023_ETE/MapServer/WMSServer", { layers:"0", format:"image/jpeg", maxZoom:21, attribution:"© SPW – WalOnMap" }).addTo(MAP).bringToBack(); };
+  document.querySelectorAll("#vbtns button").forEach(b => b.onclick = async () => {
+    const gt = $("#gtype").value || null, gn = $("#gnom").value.trim() || null, gs = $("#gsrc").value.trim() || null;
+    if(gt && !gs) return toast("Indiquez la source qui établit le gestionnaire.", "ko");
+    try{ await DB.rpc("oc_verifier_site", { p_obs_plan_eau_id: id, p_resultat: b.dataset.v, p_note: $("#vnote").value.trim() || null,
+            p_gestionnaire_type: gt, p_gestionnaire_nom: gn, p_source: gs });
+      toast("Enregistré : " + b.dataset.v, "ok");
+      SITES = await DB.rpc("oc_sites_commune", { p_ins: COM.commune_ins }); const keep = SEL; ongletSites(); selectSite(keep);
+    }catch(e){ toast(errMsg(e), "ko"); } });
+}
+
+/* ---- 2b. Élus et contacts ---- */
+async function ongletContacts(){
+  $("#ocontent").innerHTML = `<div class="card"><p class="muted">Chargement…</p></div>`;
+  let ks; try{ ks = await q(DB.from("oc_commune_contacts").select("*").eq("commune_ins", COM.commune_ins).order("fonction").order("nom")); }catch(e){ return toast(errMsg(e),"ko"); }
+  $("#ocontent").innerHTML = `<div class="card"><div class="row"><h2 style="margin:0">Élus et contacts</h2><span style="flex:1"></span><button id="kadd">＋ Ajouter un contact</button></div>
+    <p class="muted small">Un courriel ne peut être validé que pour un contact <b>vérifié</b> (source et date), avec une adresse e-mail et sans opposition. L'appartenance politique n'intervient dans aucun calcul.</p>
+    <div class="tbl-wrap"><table><thead><tr><th>Nom</th><th>Fonction</th><th>Attributions</th><th>E-mail</th><th>Vérifié</th><th></th></tr></thead><tbody>
+    ${ks.map(k => `<tr><td><b>${esc(k.nom)}</b>${k.opposition_contact?' <span class="pill ko">opposition</span>':""}${!k.actif?' <span class="pill">inactif</span>':""}</td><td>${esc(k.fonction)}</td><td class="small">${esc(k.attributions||"")}</td>
+      <td>${esc(k.email||"—")}</td><td>${k.verifie?`<span class="pill ok">oui · ${dateFr(k.verifie_le)}</span>`:'<span class="pill warn">à vérifier</span>'}</td><td><button data-k="${k.id}">Modifier</button></td></tr>`).join("")}
+    </tbody></table></div></div>`;
+  $("#kadd").onclick = () => editContact(null);
+  document.querySelectorAll("[data-k]").forEach(b => b.onclick = () => editContact(ks.find(k => k.id === b.dataset.k)));
+}
+function editContact(k){
+  const n = !k; k = k || { commune_ins: COM.commune_ins, fonction: "Échevin", source: "", verifie: false, actif: true, opposition_contact: false };
+  const m = modal(`<h1>${n ? "Nouveau contact" : esc(k.nom)}</h1>
+    <div class="grid g2"><div><label>Nom</label><input id="kn" value="${esc(k.nom||"")}"></div><div><label>Fonction</label><select id="kf">${FONCTIONS.map(f => `<option ${f===k.fonction?"selected":""}>${f}</option>`).join("")}</select></div></div>
+    <label>Attributions</label><input id="ka" value="${esc(k.attributions||"")}">
+    <div class="grid g2"><div><label>E-mail</label><input id="ke" type="email" value="${esc(k.email||"")}"></div><div><label>Téléphone</label><input id="kt" value="${esc(k.telephone||"")}"></div></div>
+    <label>Source de l'information (obligatoire)</label><input id="ks" value="${esc(k.source||"")}" placeholder="ex. site officiel de la commune, page « Collège communal »">
+    <label>Adresse de la source</label><input id="ku" value="${esc(k.source_url||"")}" placeholder="https://…">
+    <div class="row" style="margin-top:10px">
+      <label class="row" style="margin:0;color:var(--ink)"><input type="checkbox" id="kv" style="width:auto" ${k.verifie?"checked":""}> Informations vérifiées aujourd'hui sur la source</label>
+      <label class="row" style="margin:0;color:var(--ink)"><input type="checkbox" id="ko" style="width:auto" ${k.opposition_contact?"checked":""}> Ne souhaite pas être contacté</label>
+      <label class="row" style="margin:0;color:var(--ink)"><input type="checkbox" id="kac" style="width:auto" ${k.actif?"checked":""}> Actif</label></div>
+    <div style="margin-top:12px"><button class="primary" id="ksave">Enregistrer</button></div>`);
+  m.querySelector("#ksave").onclick = async () => {
+    const v = m.querySelector("#kv").checked;
+    const row = { commune_ins: COM.commune_ins, nom: m.querySelector("#kn").value.trim(), fonction: m.querySelector("#kf").value, attributions: m.querySelector("#ka").value.trim() || null,
+      email: m.querySelector("#ke").value.trim() || null, telephone: m.querySelector("#kt").value.trim() || null, source: m.querySelector("#ks").value.trim(),
+      source_url: m.querySelector("#ku").value.trim() || null, verifie: v, verifie_le: v ? (k.verifie && k.verifie_le ? k.verifie_le : today()) : null, verifie_par: v ? USER.email : null,
+      opposition_contact: m.querySelector("#ko").checked, actif: m.querySelector("#kac").checked };
+    if(!row.nom || !row.source) return toast("Nom et source sont obligatoires.", "ko");
+    try{ if(n) await q(DB.from("oc_commune_contacts").insert(row)); else await q(DB.from("oc_commune_contacts").update(row).eq("id", k.id));
+      m.remove(); toast("Contact enregistré", "ok"); ongletContacts(); }catch(e){ toast(errMsg(e), "ko"); }
+  };
+}
+
+/* ---- 2c. Engagements ---- */
+async function ongletEngagements(){
+  let es = []; try{ es = await q(DB.from("oc_commune_engagements").select("*").eq("commune_ins", COM.commune_ins).order("theme")); }catch(e){ return toast(errMsg(e),"ko"); }
+  $("#ocontent").innerHTML = `<div class="card"><h2>Intérêt environnemental institutionnel : <span class="pill ${ieCls(COM.prio?.interet_env)}">${esc(COM.prio?.interet_env||"—")}</span></h2>
+    ${COM.interet_env_note ? `<p class="small"><span class="pill warn">${esc(COM.interet_env_note)}</span></p>` : ""}
+    <p class="muted small">Engagements publics de la commune (plans climat, PCDN, eau, zones humides…). Chaque ligne garde sa source, son adresse et sa date de vérification.</p>
+    <table><thead><tr><th>Thème</th><th>Engagement</th><th>Date</th><th>Lien eau</th><th>Vérifié le</th></tr></thead><tbody>
+    ${es.map(e => `<tr><td>${esc(e.theme)}</td><td><a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.titre)}</a><div class="small muted">${esc(e.description||"")}</div></td><td>${esc(e.date_document||"—")}</td><td>${e.lien_eau?"oui":""}</td><td>${dateFr(e.verifie_le)}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">Aucun engagement enregistré.</td></tr>`}
+    </tbody></table></div>`;
+}
+
+/* ---- 2d. Courriels et démarches ---- */
+async function ongletCourriels(){
+  let ms = [], ks = [], os = [];
+  try{ [ms, ks, os] = await Promise.all([
+    q(DB.from("oc_commune_messages").select("id,objet,statut,created_at,valide_le,envoye_le,contact_id").eq("commune_ins", COM.commune_ins).order("created_at", { ascending:false })),
+    q(DB.from("oc_commune_contacts").select("id,nom,fonction,verifie,email").eq("commune_ins", COM.commune_ins).eq("actif", true).order("nom")),
+    q(DB.from("oc_commune_outreach").select("*").eq("commune_ins", COM.commune_ins).order("date_action", { ascending:false })) ]); }catch(e){ return toast(errMsg(e),"ko"); }
+  const verifies = SITES.filter(s => ["public_etabli","probablement_public"].includes(s.categorie) && ["lentilles probables","lentilles confirmées terrain"].includes(s.verification_visuelle)).length;
+  $("#ocontent").innerHTML = `<div class="grid g2"><div class="card"><h2>Préparer un courriel</h2>
+      <p class="small">${verifies ? `<span class="pill ok">${verifies} site(s) public(s) vérifié(s)</span> seront cités.` : `<span class="pill ko">Aucun site public vérifié</span> — vérifiez au moins un site dans l'onglet « Sites et carte ».`}</p>
+      <label>Destinataire</label><select id="mk">${ks.map(k => `<option value="${k.id}">${esc(k.nom)} — ${esc(k.fonction)}${k.verifie?"":" (à vérifier)"}${k.email?"":" (sans e-mail)"}</option>`).join("")}</select>
+      <div style="margin-top:10px"><button class="primary" id="mprep" ${ks.length?"":"disabled"}>Préparer le brouillon</button></div></div>
+    <div class="card"><h2>Courriels de la commune</h2>${ms.length ? `<table><tbody>${ms.map(m => `<tr class="click" data-m="${m.id}"><td>${esc(m.objet)}<div class="small muted">créé le ${dateFr(m.created_at)}${m.envoye_le?` · envoyé le ${dateFr(m.envoye_le)}`:""}</div></td><td>${statutPill(m.statut)}</td></tr>`).join("")}</tbody></table>` : `<p class="muted">Aucun courriel.</p>`}
+      <h2 style="margin-top:16px">Démarches enregistrées</h2>${os.length ? `<ul class="small">${os.map(o => `<li>${dateFr(o.date_action)} · ${esc(o.type)} · ${esc(o.objet||"")}</li>`).join("")}</ul>` : `<p class="muted small">Aucune démarche.</p>`}</div></div>`;
+  $("#mprep").onclick = async () => { try{ const id = await DB.rpc("oc_preparer_courriel", { p_ins: COM.commune_ins, p_contact: $("#mk").value }); location.hash = "#/courriel/" + id; }catch(e){ toast(errMsg(e), "ko"); } };
+  document.querySelectorAll("[data-m]").forEach(tr => tr.onclick = () => location.hash = "#/courriel/" + tr.dataset.m);
+}
+const statutPill = s => `<span class="pill ${s==="envoyé"?"ok":s==="validé"?"info":s==="annulé"?"":"warn"}">${esc(s)}</span>`;
+
+/* =====================================================================
+   3. COURRIEL : relire → valider → copier → marquer envoyé
+   ===================================================================== */
+async function viewCourriel(id){
+  $("#app").innerHTML = `<p class="muted">Chargement…</p>`;
+  let m, k, c, ctl;
+  try{ m = await q(DB.from("oc_commune_messages").select("*").eq("id", id).single());
+    [k, c] = await Promise.all([ m.contact_id ? q(DB.from("oc_commune_contacts").select("*").eq("id", m.contact_id).single()) : null, q(DB.from("oc_communes").select("nom,commune_ins").eq("commune_ins", m.commune_ins).single()) ]);
+    ctl = await DB.rpc("oc_controles_envoi", { p_ins: m.commune_ins, p_contact: m.contact_id });
+  }catch(e){ $("#app").innerHTML = `<div class="card"><b>Erreur :</b> ${esc(errMsg(e))}</div>`; return; }
+  const edit = m.statut === "brouillon";
+  const etapes = [["brouillon","1 · Relire et corriger"],["validé","2 · Validé : copier dans la messagerie"],["envoyé","3 · Envoyé"]];
+  $("#app").innerHTML = `<p class="small"><a href="#/commune/${esc(c.commune_ins)}/courriels">← ${esc(c.nom)}</a></p>
+    <div class="row"><h1>Courriel — ${esc(c.nom)}</h1><span style="flex:1"></span>${statutPill(m.statut)}</div>
+    <div class="tabs">${etapes.map(([s,l]) => `<button disabled class="${s===m.statut?"on":""}">${l}</button>`).join("")}</div>
+    <div class="grid g2"><div class="card">
+      <label>Destinataire</label><div class="row"><input readonly value="${esc(k ? `${k.nom} <${k.email||"pas d'e-mail"}>` : "—")}"></div>
+      <label>Objet</label><input id="mo" value="${esc(m.objet)}" ${edit?"":"readonly"}>
+      <label>Texte</label>${edit ? `<textarea id="mc" style="min-height:420px">${esc(m.corps)}</textarea>` : `<div class="mail" id="mcv">${esc(m.corps)}</div>`}
+      <div class="row" style="margin-top:12px">
+        ${edit ? `<button id="msave">Enregistrer les corrections</button><button class="primary" id="mval" ${ctl.pret?"":"disabled"}>Valider</button>` : ""}
+        ${m.statut === "validé" ? `<button id="cpo">Copier l'objet</button><button id="cpc">Copier le texte</button>
+           ${k?.email ? `<a class="btn" href="mailto:${encodeURIComponent(k.email)}?subject=${encodeURIComponent(m.objet)}&body=${encodeURIComponent(m.corps)}">Ouvrir dans ma messagerie</a>` : ""}
+           <button class="primary" id="msent">J'ai envoyé ce courriel</button><button id="mback">Repasser en brouillon</button>` : ""}
+        ${m.statut === "envoyé" ? `<span class="muted">Envoyé le ${dateFr(m.envoye_le)} — démarche enregistrée.</span>` : ""}
+        ${["brouillon","validé"].includes(m.statut) ? `<span style="flex:1"></span><button class="danger" id="mcancel">Annuler ce courriel</button>` : ""}
+      </div></div>
+    <div class="card"><h2>Contrôles avant envoi</h2>
+      <ul class="checks">${(ctl.controles||[]).map(x => `<li>${x.ok ? '<span class="pill ok">✓</span>' : `<span class="pill ${x.bloquant?"ko":"warn"}">${x.bloquant?"✗ bloquant":"! à noter"}</span>`} ${esc(x.libelle)}</li>`).join("")}</ul>
+      <p class="small" style="margin-top:10px">${ctl.pret ? '<span class="pill ok">Prêt à valider</span>' : '<span class="pill ko">Validation impossible</span> tant qu\'un contrôle bloquant n\'est pas rempli.'}</p>
+      ${m.controles ? `<p class="muted small">Contrôles enregistrés lors de la validation du ${dateFr(m.valide_le)}.</p>` : ""}
+      <h2 style="margin-top:14px">Sites cités</h2>
+      <ul class="small">${(m.sites||[]).map(s => `<li>${esc(s.lieu)} — ${fmt(s.surface_m2)} m²${s.communal?" — propriété communale":""}</li>`).join("") || '<li class="muted">Aucun.</li>'}</ul>
+      <p class="muted small">Le texte ne cite que des sites publics que vous avez vérifiés. Toute correction après validation impose une nouvelle validation.</p></div></div>`;
+  const upd = async (patch, okMsg) => { try{ await q(DB.from("oc_commune_messages").update(patch).eq("id", id)); toast(okMsg, "ok"); viewCourriel(id); }catch(e){ toast(errMsg(e), "ko"); } };
+  if(edit){
+    $("#msave").onclick = () => upd({ objet: $("#mo").value, corps: $("#mc").value }, "Corrections enregistrées");
+    $("#mval").onclick = async () => { try{ await q(DB.from("oc_commune_messages").update({ objet: $("#mo").value, corps: $("#mc").value }).eq("id", id)); }catch(e){ return toast(errMsg(e), "ko"); }
+      upd({ statut: "validé" }, "Courriel validé"); };
+  }
+  if(m.statut === "validé"){
+    $("#cpo").onclick = () => copy(m.objet, "Objet"); $("#cpc").onclick = () => copy(m.corps, "Texte");
+    $("#msent").onclick = () => { if(confirm("Confirmez-vous avoir envoyé ce courriel depuis votre messagerie ?")) upd({ statut: "envoyé" }, "Envoi enregistré"); };
+    $("#mback").onclick = () => upd({ statut: "brouillon" }, "Repassé en brouillon");
+  }
+  if($("#mcancel")) $("#mcancel").onclick = () => { if(confirm("Annuler ce courriel ?")) upd({ statut: "annulé" }, "Courriel annulé"); };
+}
+
+/* ---- liste de tous les courriels ---- */
+async function viewCourriels(){
+  $("#app").innerHTML = `<h1>Courriels</h1><div class="card"><p class="muted">Chargement…</p></div>`;
+  let ms, cs; try{ [ms, cs] = await Promise.all([ q(DB.from("oc_commune_messages").select("id,commune_ins,objet,statut,created_at,envoye_le").order("created_at", { ascending:false })), q(DB.from("oc_communes").select("commune_ins,nom")) ]); }
+  catch(e){ $("#app .card").innerHTML = esc(errMsg(e)); return; }
+  const nom = Object.fromEntries(cs.map(c => [c.commune_ins, c.nom]));
+  $("#app .card").innerHTML = ms.length ? `<table><thead><tr><th>Commune</th><th>Objet</th><th>Créé le</th><th>Envoyé le</th><th>Statut</th></tr></thead><tbody>${ms.map(m => `<tr class="click" data-m="${m.id}"><td>${esc(nom[m.commune_ins]||m.commune_ins)}</td><td>${esc(m.objet)}</td><td>${dateFr(m.created_at)}</td><td>${dateFr(m.envoye_le)}</td><td>${statutPill(m.statut)}</td></tr>`).join("")}</tbody></table>` : `<p class="muted">Aucun courriel préparé.</p>`;
+  document.querySelectorAll("[data-m]").forEach(tr => tr.onclick = () => location.hash = "#/courriel/" + tr.dataset.m);
+}
+
+/* ---- mode d'emploi ---- */
+function viewAide(){
+  $("#app").innerHTML = `<h1>Mode d'emploi</h1><div class="card">
+    <ol>
+      <li><b>Choisir une commune</b> dans le tableau de prospection (triable par colonne ; cliquez sur un score pour son calcul).</li>
+      <li><b>Vérifier les sites</b> (onglet « Sites et carte », filtre « À vérifier ») : pour chaque site, regardez l'orthophoto (été 2023 de préférence) et cliquez sur ce que vous voyez. Les stations d'épuration proches sont déjà écartées automatiquement ; contrôlez l'onglet « Proches d'une station ».</li>
+      <li><b>Vérifier le destinataire</b> (onglet « Élus et contacts ») : source, adresse e-mail, case « vérifié ».</li>
+      <li><b>Préparer le courriel</b> (onglet « Courriels et démarches »). Le texte ne cite que les sites vérifiés.</li>
+      <li><b>Relire, corriger, valider.</b> La validation est refusée tant qu'un contrôle bloquant n'est pas rempli.</li>
+      <li><b>Copier</b> l'objet et le texte dans votre messagerie (ou « Ouvrir dans ma messagerie »), envoyer.</li>
+      <li><b>Cliquer « J'ai envoyé ce courriel »</b> : la démarche est enregistrée et la commune passe en « contactée ».</li>
+    </ol>
+    <p class="muted small">Cet outil est indépendant de l'Observatoire actuel : il n'écrit que dans les tables oc_* et ne lit l'Observatoire qu'au travers de fonctions de lecture. Version ${esc(CFG.VERSION)}.</p></div>`;
+}
+
+boot();
+</script>
+</body>
+</html>
