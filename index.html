@@ -21,7 +21,7 @@ window.OC_CONFIG = {
   SB_URL: "https://dnunawdqljlvkhwvwxxa.supabase.co",
   SB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ",   // clé publique « anon » (la même que dans l'Observatoire)
   AUTH_STORAGE_KEY: "aquiklin-oc-auth",       // distinct de l'Observatoire actuel
-  VERSION: "0.2 – pilote"
+  VERSION: "0.3 – pilote"
 };
 </script>
 <style>
@@ -380,15 +380,20 @@ function editContact(k){
     <div class="grid g2"><div><label>Nom</label><input id="kn" value="${esc(k.nom||"")}"></div><div><label>Fonction</label><select id="kf">${FONCTIONS.map(f => `<option ${f===k.fonction?"selected":""}>${f}</option>`).join("")}</select></div></div>
     <label>Attributions</label><input id="ka" value="${esc(k.attributions||"")}">
     <div class="card" style="background:var(--soft2);margin:10px 0 4px;padding:12px">
-      <h2 style="margin:0 0 6px">Adresse e-mail</h2>
-      <div class="row"><input id="ke" type="email" value="${esc(k.email||"")}" placeholder="adresse@commune.be" style="flex:1;min-width:220px">
-        <button id="ksearch" type="button">🔎 Chercher sur le site de la commune</button>
-        <a class="btn" id="kweb" target="_blank" rel="noopener">Recherche web ↗</a></div>
-      <label>Trouvée où ? (adresse de la page)</label>
-      <div class="row"><input id="keu" value="${esc(k.email_source_url||"")}" placeholder="https://… (page où figure l'adresse)" style="flex:1">${k.email_source_url ? `<a class="btn" href="${esc(k.email_source_url)}" target="_blank" rel="noopener">Ouvrir ↗</a>` : ""}</div>
-      <label>Extrait de la page</label><input id="kex" value="${esc(k.email_extrait||"")}" placeholder="texte autour de l'adresse, pour mémoire">
+      <h2 style="margin:0 0 6px">Adresse e-mail — en 3 gestes</h2>
+      <div class="row"><b class="small">1.</b><a class="btn primary" id="kweb" target="_blank" rel="noopener" style="background:var(--accent);color:var(--accent-ink);border-color:var(--accent)">Chercher sur Google ↗</a>
+        <button id="ksearch" type="button">ou chercher sur le site de la commune</button></div>
+      <label><b>2.</b> Collez ici l'adresse (ou tout le texte copié : l'adresse sera reconnue)</label>
+      <input id="kpaste" placeholder="ex. carole.ghiot@beauvechain.be" value="">
+      <div id="kpick" class="row small" style="margin-top:6px"></div>
+      <div class="row" style="margin-top:6px"><label style="margin:0">Adresse retenue</label><input id="ke" type="email" value="${esc(k.email||"")}" placeholder="adresse@commune.be" style="flex:1;min-width:220px"></div>
+      <label><b>3.</b> Page où elle figure (pour la contrôler)</label>
+      <div class="row"><input id="keu" value="${esc(k.email_source_url||"")}" placeholder="https://… (page de la commune où l'adresse est publiée)" style="flex:1">
+        <button type="button" id="ksite" title="Le site officiel enregistré pour la commune">= site de la commune</button>
+        <a class="btn" id="kopen" target="_blank" rel="noopener">Ouvrir ↗</a></div>
+      <input id="kex" type="hidden" value="${esc(k.email_extrait||"")}">
       <div id="kres" class="small" style="margin-top:8px"></div>
-      <p class="muted small" style="margin:8px 0 0">Une adresse proposée n'est <b>jamais validée d'office</b> : ouvrez la page, contrôlez, puis cochez « vérifié » plus bas.</p>
+      <p class="muted small" style="margin:8px 0 0">Google (et son « aperçu IA ») peut se tromper : ouvrez la page, contrôlez l'adresse, puis cochez « vérifié » plus bas. Sans page indiquée, la case « vérifié » est refusée.</p>
     </div>
     <label>Téléphone</label><input id="kt" value="${esc(k.telephone||"")}">
     <label>Source de l'information (obligatoire)</label><input id="ks" value="${esc(k.source||"")}" placeholder="ex. site officiel de la commune, page « Collège communal »">
@@ -401,13 +406,25 @@ function editContact(k){
   const kn = () => m.querySelector("#kn").value.trim();
   const majWeb = () => { m.querySelector("#kweb").href = "https://www.google.com/search?q=" + encodeURIComponent(`"${kn()}" ${COM.nom} e-mail`); };
   majWeb(); m.querySelector("#kn").addEventListener("input", majWeb);
+  const majOpen = () => { const u = m.querySelector("#keu").value.trim(); const a = m.querySelector("#kopen"); a.href = u || "#"; a.style.opacity = u ? 1 : .4; };
+  majOpen(); m.querySelector("#keu").addEventListener("input", majOpen);
+  m.querySelector("#ksite").onclick = () => { if(!COM.site_web) return toast("Site officiel non renseigné (onglet Élus et contacts).", "ko"); m.querySelector("#keu").value = COM.site_web; majOpen(); };
+  const choisir = e => { m.querySelector("#ke").value = e; m.querySelector("#kv").checked = false; };
+  m.querySelector("#kpaste").addEventListener("input", ev => {
+    const found = [...new Set((ev.target.value.replace(/\s*[\[\(]\s*(at|arobase)\s*[\]\)]\s*/gi, "@").match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) || []).map(x => x.toLowerCase()))];
+    const pick = m.querySelector("#kpick");
+    if(!found.length){ pick.innerHTML = ev.target.value.trim() ? '<span class="pill warn">aucune adresse reconnue</span>' : ""; return; }
+    if(found.length === 1){ choisir(found[0]); pick.innerHTML = `<span class="pill ok">adresse reconnue : ${esc(found[0])}</span>`; return; }
+    pick.innerHTML = `<span class="muted">Plusieurs adresses — choisissez :</span> ` + found.map(e => `<button type="button" data-pick="${esc(e)}">${esc(e)}</button>`).join(" ");
+    pick.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { choisir(b.dataset.pick); pick.innerHTML = `<span class="pill ok">retenue : ${esc(b.dataset.pick)}</span>`; });
+  });
   m.querySelector("#ksearch").onclick = async () => {
     const box = m.querySelector("#kres"), btn = m.querySelector("#ksearch");
     if(!kn()) return toast("Indiquez d'abord le nom.", "ko");
     btn.disabled = true; box.innerHTML = `<span class="muted">Recherche sur ${esc(COM.site_web||"le site de la commune")}… (jusqu'à 30 secondes)</span>`;
     try{
       const r = await DB.fn("oc-recherche-email", { commune_ins: COM.commune_ins, nom: kn() });
-      box.innerHTML = !r.resultats.length ? `<span class="pill warn">Aucune adresse trouvée</span> <span class="muted">(${r.pages_visitees} page(s) visitée(s) sur ${esc(r.site)}). Essayez la recherche web.</span>`
+      box.innerHTML = !r.resultats.length ? `<span class="pill warn">Aucune adresse trouvée</span> <span class="muted">(${r.pages_visitees} page(s) visitée(s) sur ${esc(r.site)}). Utilisez « Chercher sur Google ».</span>`
         : `<div class="muted" style="margin-bottom:4px">${r.resultats.length} adresse(s) trouvée(s) sur ${r.pages_visitees} page(s) de ${esc(r.site)} — la plus probable en premier :</div>` +
           r.resultats.map((x, i) => `<div class="site" style="cursor:default"><div class="row"><b>${esc(x.email)}</b>
               ${x.score >= 10 ? '<span class="pill ok">nom reconnu</span>' : x.score >= 5 ? '<span class="pill info">probable</span>' : '<span class="pill">générique</span>'}
@@ -415,7 +432,7 @@ function editContact(k){
               <div class="muted">« …${esc(x.extrait)} »</div><div class="muted">${esc((x.raisons||[]).join(" · "))}</div></div>`).join("");
       box.querySelectorAll("[data-use]").forEach(b => b.onclick = () => { const x = r.resultats[+b.dataset.use];
         m.querySelector("#ke").value = x.email; m.querySelector("#keu").value = x.page; m.querySelector("#kex").value = x.extrait.slice(0, 500);
-        m.querySelector("#kv").checked = false; toast("Adresse reprise : ouvrez la page pour la contrôler, puis cochez « vérifié ».", "ok"); });
+        m.querySelector("#kv").checked = false; majOpen(); toast("Adresse reprise : ouvrez la page pour la contrôler, puis cochez « vérifié ».", "ok"); });
     }catch(e){ box.innerHTML = `<span class="pill ko">Recherche impossible</span> <span class="muted">${esc(errMsg(e))}</span>`; }
     btn.disabled = false;
   };
