@@ -8,7 +8,22 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="config.js"></script>
+<script>
+/* =====================================================================
+   Aquiklin · Observatoire Communes — configuration
+   Propre à CET outil (aquiklin-observatoire-communes). Ne pas copier dans
+   le dépôt de l'Observatoire actuel.
+   La clé ci-dessous est la clé PUBLIQUE « anon » du projet Supabase : elle
+   ne donne accès à rien sans connexion (règles RLS « personnel uniquement »).
+   ===================================================================== */
+window.OC_CONFIG = {
+  APP_NAME: "Aquiklin · Observatoire Communes",
+  SB_URL: "https://dnunawdqljlvkhwvwxxa.supabase.co",
+  SB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ",   // clé publique « anon » (la même que dans l'Observatoire)
+  AUTH_STORAGE_KEY: "aquiklin-oc-auth",       // distinct de l'Observatoire actuel
+  VERSION: "0.1 – pilote"
+};
+</script>
 <style>
 :root{
   /* identité aquiklin.be : bleu nuit #363F47, vert d'eau #4a7c59, vert clair #A5D542, sable #f4efe4 */
