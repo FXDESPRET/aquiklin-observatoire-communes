@@ -21,7 +21,7 @@ window.OC_CONFIG = {
   SB_URL: "https://dnunawdqljlvkhwvwxxa.supabase.co",
   SB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ",   // clé publique « anon » (la même que dans l'Observatoire)
   AUTH_STORAGE_KEY: "aquiklin-oc-auth",       // distinct de l'Observatoire actuel
-  VERSION: "0.4 – pilote"
+  VERSION: "0.4.1 – pilote"
 };
 </script>
 <style>
@@ -412,7 +412,8 @@ function editContact(k){
       <label><b>3.</b> Page où elle figure (pour la contrôler)</label>
       <div class="row"><input id="keu" value="${esc(k.email_source_url||"")}" placeholder="https://… (page de la commune où l'adresse est publiée)" style="flex:1">
         <button type="button" id="ksite" title="Le site officiel enregistré pour la commune">= site de la commune</button>
-        <a class="btn" id="kopen" target="_blank" rel="noopener">Ouvrir ↗</a></div>
+        <a class="btn" id="kopen" target="_blank" rel="noopener">Ouvrir ↗</a>
+        <button type="button" id="kpage" title="Lit cette page du site de la commune et en extrait les adresses (y compris les adresses masquées)">Lire les adresses de cette page</button></div>
       <input id="kex" type="hidden" value="${esc(k.email_extrait||"")}">
       <div id="kres" class="small" style="margin-top:8px"></div>
       <label class="row" style="margin:8px 0 0;color:var(--ink)"><input type="checkbox" id="kev" style="width:auto" ${k.email_verifie?"checked":""}> <b>E-mail vérifié</b> : j'ai ouvert la page et l'adresse y figure bien</label>
@@ -444,14 +445,17 @@ function editContact(k){
     pick.innerHTML = `<span class="muted">Plusieurs adresses — choisissez :</span> ` + found.map(e => `<button type="button" data-pick="${esc(e)}">${esc(e)}</button>`).join(" ");
     pick.querySelectorAll("[data-pick]").forEach(b => b.onclick = () => { choisir(b.dataset.pick); pick.innerHTML = `<span class="pill ok">retenue : ${esc(b.dataset.pick)}</span>`; });
   });
-  m.querySelector("#ksearch").onclick = async () => {
-    const box = m.querySelector("#kres"), btn = m.querySelector("#ksearch");
+  const lancer = async (btn, page) => {
+    const box = m.querySelector("#kres");
     if(!kn()) return toast("Indiquez d'abord le nom.", "ko");
-    btn.disabled = true; box.innerHTML = `<span class="muted">Recherche sur ${esc(COM.site_web||"le site de la commune")}… (jusqu'à 30 secondes)</span>`;
+    btn.disabled = true; box.innerHTML = `<span class="muted">${page ? "Lecture de la page…" : `Recherche sur ${esc(COM.site_web||"le site de la commune")}… (jusqu'à 60 secondes)`}</span>`;
     try{
-      const r = await DB.fn("oc-recherche-email", { commune_ins: COM.commune_ins, nom: kn() });
-      box.innerHTML = !r.resultats.length ? `<span class="pill warn">Aucune adresse trouvée</span> <span class="muted">(${r.pages_visitees} page(s) visitée(s) sur ${esc(r.site)}). Utilisez « Chercher sur Google ».</span>`
-        : `<div class="muted" style="margin-bottom:4px">${r.resultats.length} adresse(s) trouvée(s) sur ${r.pages_visitees} page(s) de ${esc(r.site)} — la plus probable en premier :</div>` +
+      const r = await DB.fn("oc-recherche-email", { commune_ins: COM.commune_ins, nom: kn(), page: page || null });
+      if(r.erreur){ box.innerHTML = `<span class="pill ko">${esc(r.erreur)}</span>`; btn.disabled = false; return; }
+      const diag = `${r.pages_visitees} page(s) lue(s) sur ${esc(r.site)}${r.pages_refusees ? ` · <b>${r.pages_refusees} page(s) refusée(s) par le site</b> (protection anti-robots possible)` : ""}`;
+      box.innerHTML = !r.resultats.length ? `<span class="pill warn">Aucune adresse trouvée</span> <span class="muted">(${diag}). Ouvrez la page de l'élu sur le site, collez son adresse dans le champ 3 et cliquez « Lire les adresses de cette page », ou utilisez « Chercher sur Google ».</span>
+          <details class="muted"><summary>Pages consultées</summary><ul>${(r.journal||[]).map(j => `<li>${esc(String(j.statut))} · ${esc(j.url)}</li>`).join("")}</ul></details>`
+        : `<div class="muted" style="margin-bottom:4px">${r.resultats.length} adresse(s) trouvée(s) — ${diag} — la plus probable en premier :</div>` +
           r.resultats.map((x, i) => `<div class="site" style="cursor:default"><div class="row"><b>${esc(x.email)}</b>
               ${x.score >= 10 ? '<span class="pill ok">nom reconnu</span>' : x.score >= 5 ? '<span class="pill info">probable</span>' : '<span class="pill">générique</span>'}
               <span style="flex:1"></span><a class="btn" href="${esc(x.page)}" target="_blank" rel="noopener">Voir la page ↗</a><button type="button" class="primary" data-use="${i}">Utiliser</button></div>
@@ -459,9 +463,13 @@ function editContact(k){
       box.querySelectorAll("[data-use]").forEach(b => b.onclick = () => { const x = r.resultats[+b.dataset.use];
         m.querySelector("#ke").value = x.email; m.querySelector("#keu").value = x.page; m.querySelector("#kex").value = x.extrait.slice(0, 500);
         m.querySelector("#kev").checked = false; majOpen(); toast("Adresse reprise : ouvrez la page pour la contrôler, puis cochez « vérifié ».", "ok"); });
-    }catch(e){ box.innerHTML = `<span class="pill ko">Recherche impossible</span> <span class="muted">${esc(errMsg(e))}</span>`; }
+    }catch(e){ box.innerHTML = `<span class="pill ko">Recherche impossible</span> <span class="muted">${esc(errMsg(e))} — la fonction « oc-recherche-email » est-elle déployée dans Supabase ?</span>`; }
     btn.disabled = false;
   };
+  m.querySelector("#ksearch").onclick = () => lancer(m.querySelector("#ksearch"), null);
+  m.querySelector("#kpage").onclick = () => { const u = m.querySelector("#keu").value.trim();
+    if(!/^https?:\/\//.test(u)) return toast("Collez d'abord dans le champ 3 l'adresse de la page de l'élu (copiée depuis votre navigateur).", "ko");
+    lancer(m.querySelector("#kpage"), u); };
   m.querySelector("#ksave").onclick = async () => {
     const v = m.querySelector("#kv").checked;
     const row = { commune_ins: COM.commune_ins, nom: m.querySelector("#kn").value.trim(), fonction: m.querySelector("#kf").value, attributions: m.querySelector("#ka").value.trim() || null,
