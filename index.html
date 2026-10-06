@@ -21,7 +21,7 @@ window.OC_CONFIG = {
   SB_URL: "https://dnunawdqljlvkhwvwxxa.supabase.co",
   SB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ",   // clé publique « anon » (la même que dans l'Observatoire)
   AUTH_STORAGE_KEY: "aquiklin-oc-auth",       // distinct de l'Observatoire actuel
-  VERSION: "0.3 – pilote"
+  VERSION: "0.4 – pilote"
 };
 </script>
 <style>
@@ -188,12 +188,13 @@ async function logout(){ await sb.auth.signOut(); location.hash = ""; renderLogi
 /* ---------------- routage ---------------- */
 function route(){
   const h = location.hash.replace(/^#\/?/, "").split("/");
-  const navs = [["", "Tableau de prospection"], ["courriels", "Courriels"], ["aide", "Mode d'emploi"]];
+  const navs = [["", "Tableau de prospection"], ["courriels", "Mails"], ["references", "Références"], ["aide", "Mode d'emploi"]];
   $("#nav").innerHTML = navs.map(([k,l]) => `<a href="#/${k}" class="${(h[0]||"")===k ? "on" : ""}">${l}</a>`).join("");
   try{
     if(h[0] === "commune" && h[1]) return viewCommune(h[1], h[2]);
     if(h[0] === "courriel" && h[1]) return viewCourriel(h[1]);
     if(h[0] === "courriels") return viewCourriels();
+    if(h[0] === "references") return viewReferences();
     if(h[0] === "aide") return viewAide();
     return viewTableau();
   }catch(e){ $("#app").innerHTML = `<div class="card"><b>Erreur :</b> ${esc(errMsg(e))}</div>`; }
@@ -280,7 +281,7 @@ async function viewCommune(ins, onglet){
       <div><b>${fmt(p.publics_probleme)}</b>publiques à problème</div><div><b>${fmt(p.sites_a_verifier_visuellement)}</b>à vérifier</div>
       <div><b><span class="score" id="sc">${fmt(p.score_global,1)}</span></b>score priorité</div><div><b>${esc(p.interet_env||"—")}</b>intérêt env.</div>
     </div>
-    <div class="tabs" id="otabs">${[["sites","Sites et carte"],["contacts","Élus et contacts"],["engagements","Engagements"],["courriels","Courriels et démarches"]].map(([k,l]) => `<button data-t="${k}" class="${k===tab?"on":""}">${l}</button>`).join("")}</div>
+    <div class="tabs" id="otabs">${[["sites","Sites et carte"],["contacts","Élus et contacts"],["engagements","Engagements"],["courriels","Rapport et mail"]].map(([k,l]) => `<button data-t="${k}" class="${k===tab?"on":""}">${l}</button>`).join("")}</div>
     <div id="ocontent"></div>`;
   $("#cst").onchange = async e => { try{ await q(DB.from("oc_communes").update({ statut: e.target.value }).eq("commune_ins", ins)); toast("Statut enregistré", "ok"); }catch(er){ toast(errMsg(er), "ko"); } };
   $("#sc").onclick = () => p.detail && showDetail(p);
@@ -374,11 +375,32 @@ async function ongletContacts(){
     try{ await q(DB.from("oc_communes").update({ site_web: v }).eq("commune_ins", COM.commune_ins)); COM.site_web = v; toast("Site enregistré", "ok"); }catch(e){ toast(errMsg(e), "ko"); } };
   document.querySelectorAll("[data-k]").forEach(b => b.onclick = () => editContact(ks.find(k => k.id === b.dataset.k)));
 }
+/* ---- aides de rédaction ---- */
+function nomAppelAuto(nom){ const t = String(nom||"").trim().split(/\s+/); return t.length > 1 ? t.slice(1).join(" ") : (t[0]||""); }
+const COMPETENCES = [   // mot repéré dans les attributions → forme écrite après « en charge »
+  [/environnement/i, "de l'Environnement"], [/biodiversit/i, "de la Biodiversité"], [/climat/i, "du Climat"], [/transition/i, "de la Transition écologique"],
+  [/d[ée]veloppement durable/i, "du Développement durable"], [/\beau\b|cours d.eau/i, "de l'Eau"], [/nature/i, "de la Nature"], [/espaces? verts?/i, "des Espaces verts"],
+  [/cadre de vie/i, "du Cadre de vie"], [/[ée]nergie/i, "de l'Énergie"], [/for[êe]t/i, "des Forêts"], [/inondation/i, "de la Lutte contre les inondations"], [/travaux/i, "des Travaux"]
+];
+function competenceAuto(attr){ const f = COMPETENCES.filter(([re]) => re.test(attr||"")).map(x => x[1]).slice(0, 3);
+  return f.length <= 1 ? (f[0]||"") : f.slice(0,-1).join(", ") + " et " + f[f.length-1]; }
+const POIDS_COMP = [[/environnement/i,5],[/\beau\b|cours d.eau/i,5],[/biodiversit/i,5],[/climat/i,4],[/transition/i,4],[/durable/i,4],[/nature/i,4],[/espaces? verts?/i,3],[/cadre de vie/i,3],[/[ée]nergie/i,2],[/for[êe]t/i,2],[/inondation/i,2],[/travaux/i,1]];
+const scoreCompetence = k => POIDS_COMP.reduce((s,[re,w]) => s + (re.test((k.attributions||"") + " " + (k.competence_courrier||"")) ? w : 0), 0);
+
 function editContact(k){
   const n = !k; k = k || { commune_ins: COM.commune_ins, fonction: "Échevin", source: "", verifie: false, actif: true, opposition_contact: false };
   const m = modal(`<h1>${n ? "Nouveau contact" : esc(k.nom)}</h1>
     <div class="grid g2"><div><label>Nom</label><input id="kn" value="${esc(k.nom||"")}"></div><div><label>Fonction</label><select id="kf">${FONCTIONS.map(f => `<option ${f===k.fonction?"selected":""}>${f}</option>`).join("")}</select></div></div>
     <label>Attributions</label><input id="ka" value="${esc(k.attributions||"")}">
+    <div class="grid g2">
+      <div><label>Genre (pour « Madame / Monsieur », « échevine / échevin »)</label>
+        <div class="row"><label class="row" style="margin:0;color:var(--ink)"><input type="radio" name="kg" value="F" style="width:auto" ${k.genre==="F"?"checked":""}> Madame</label>
+          <label class="row" style="margin:0;color:var(--ink)"><input type="radio" name="kg" value="M" style="width:auto" ${k.genre==="M"?"checked":""}> Monsieur</label>
+          <label class="row" style="margin:0;color:var(--ink)"><input type="checkbox" id="kgv" style="width:auto" ${k.genre_verifie?"checked":""}> genre vérifié</label></div></div>
+      <div><label>Nom d'appel (« Madame <b>Wiaux</b>, »)</label><input id="kna" value="${esc(k.nom_appel||"")}" placeholder="${esc(nomAppelAuto(k.nom||""))}"></div></div>
+    <label>Compétence telle qu'écrite dans le mail (« … en charge <b>de l'Environnement et du Climat</b> »)</label>
+    <div class="row"><input id="kc" value="${esc(k.competence_courrier||"")}" placeholder="de l'Environnement et de la Biodiversité" style="flex:1"><button type="button" id="kcp">Proposer depuis les attributions</button>
+      <label class="row" style="margin:0;color:var(--ink)"><input type="checkbox" id="kcv" style="width:auto" ${k.competence_verifiee?"checked":""}> compétence vérifiée</label></div>
     <div class="card" style="background:var(--soft2);margin:10px 0 4px;padding:12px">
       <h2 style="margin:0 0 6px">Adresse e-mail — en 3 gestes</h2>
       <div class="row"><b class="small">1.</b><a class="btn primary" id="kweb" target="_blank" rel="noopener" style="background:var(--accent);color:var(--accent-ink);border-color:var(--accent)">Chercher sur Google ↗</a>
@@ -393,13 +415,14 @@ function editContact(k){
         <a class="btn" id="kopen" target="_blank" rel="noopener">Ouvrir ↗</a></div>
       <input id="kex" type="hidden" value="${esc(k.email_extrait||"")}">
       <div id="kres" class="small" style="margin-top:8px"></div>
-      <p class="muted small" style="margin:8px 0 0">Google (et son « aperçu IA ») peut se tromper : ouvrez la page, contrôlez l'adresse, puis cochez « vérifié » plus bas. Sans page indiquée, la case « vérifié » est refusée.</p>
+      <label class="row" style="margin:8px 0 0;color:var(--ink)"><input type="checkbox" id="kev" style="width:auto" ${k.email_verifie?"checked":""}> <b>E-mail vérifié</b> : j'ai ouvert la page et l'adresse y figure bien</label>
+      <p class="muted small" style="margin:6px 0 0">Google (et son « aperçu IA ») peut se tromper. Sans page indiquée, la case « e-mail vérifié » est refusée.</p>
     </div>
     <label>Téléphone</label><input id="kt" value="${esc(k.telephone||"")}">
     <label>Source de l'information (obligatoire)</label><input id="ks" value="${esc(k.source||"")}" placeholder="ex. site officiel de la commune, page « Collège communal »">
     <label>Adresse de la source</label><input id="ku" value="${esc(k.source_url||"")}" placeholder="https://…">
     <div class="row" style="margin-top:10px">
-      <label class="row" style="margin:0;color:var(--ink)"><input type="checkbox" id="kv" style="width:auto" ${k.verifie?"checked":""}> Informations vérifiées aujourd'hui sur la source</label>
+      <label class="row" style="margin:0;color:var(--ink)"><input type="checkbox" id="kv" style="width:auto" ${k.verifie?"checked":""}> Nom et fonction vérifiés sur la source</label>
       <label class="row" style="margin:0;color:var(--ink)"><input type="checkbox" id="ko" style="width:auto" ${k.opposition_contact?"checked":""}> Ne souhaite pas être contacté</label>
       <label class="row" style="margin:0;color:var(--ink)"><input type="checkbox" id="kac" style="width:auto" ${k.actif?"checked":""}> Actif</label></div>
     <div style="margin-top:12px"><button class="primary" id="ksave">Enregistrer</button></div>`);
@@ -409,7 +432,10 @@ function editContact(k){
   const majOpen = () => { const u = m.querySelector("#keu").value.trim(); const a = m.querySelector("#kopen"); a.href = u || "#"; a.style.opacity = u ? 1 : .4; };
   majOpen(); m.querySelector("#keu").addEventListener("input", majOpen);
   m.querySelector("#ksite").onclick = () => { if(!COM.site_web) return toast("Site officiel non renseigné (onglet Élus et contacts).", "ko"); m.querySelector("#keu").value = COM.site_web; majOpen(); };
-  const choisir = e => { m.querySelector("#ke").value = e; m.querySelector("#kv").checked = false; };
+  const choisir = e => { m.querySelector("#ke").value = e; m.querySelector("#kev").checked = false; };
+  m.querySelector("#ke").addEventListener("input", () => { m.querySelector("#kev").checked = false; });
+  m.querySelector("#kcp").onclick = () => { const c = competenceAuto(m.querySelector("#ka").value); if(!c) return toast("Aucune compétence reconnue dans les attributions : écrivez-la.", "ko");
+    m.querySelector("#kc").value = c; m.querySelector("#kcv").checked = false; };
   m.querySelector("#kpaste").addEventListener("input", ev => {
     const found = [...new Set((ev.target.value.replace(/\s*[\[\(]\s*(at|arobase)\s*[\]\)]\s*/gi, "@").match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) || []).map(x => x.toLowerCase()))];
     const pick = m.querySelector("#kpick");
@@ -432,7 +458,7 @@ function editContact(k){
               <div class="muted">« …${esc(x.extrait)} »</div><div class="muted">${esc((x.raisons||[]).join(" · "))}</div></div>`).join("");
       box.querySelectorAll("[data-use]").forEach(b => b.onclick = () => { const x = r.resultats[+b.dataset.use];
         m.querySelector("#ke").value = x.email; m.querySelector("#keu").value = x.page; m.querySelector("#kex").value = x.extrait.slice(0, 500);
-        m.querySelector("#kv").checked = false; majOpen(); toast("Adresse reprise : ouvrez la page pour la contrôler, puis cochez « vérifié ».", "ok"); });
+        m.querySelector("#kev").checked = false; majOpen(); toast("Adresse reprise : ouvrez la page pour la contrôler, puis cochez « vérifié ».", "ok"); });
     }catch(e){ box.innerHTML = `<span class="pill ko">Recherche impossible</span> <span class="muted">${esc(errMsg(e))}</span>`; }
     btn.disabled = false;
   };
@@ -443,10 +469,16 @@ function editContact(k){
       email_source_url: m.querySelector("#keu").value.trim() || null, email_extrait: m.querySelector("#kex").value.trim() || null,
       email_trouve_le: m.querySelector("#ke").value.trim() && m.querySelector("#ke").value.trim() !== (k.email||"") ? today() : (k.email_trouve_le || null),
       source_url: m.querySelector("#ku").value.trim() || null, verifie: v, verifie_le: v ? (k.verifie && k.verifie_le ? k.verifie_le : today()) : null, verifie_par: v ? USER.email : null,
-      opposition_contact: m.querySelector("#ko").checked, actif: m.querySelector("#kac").checked };
+      opposition_contact: m.querySelector("#ko").checked, actif: m.querySelector("#kac").checked,
+      genre: (m.querySelector('input[name="kg"]:checked')||{}).value || null, genre_verifie: m.querySelector("#kgv").checked,
+      nom_appel: m.querySelector("#kna").value.trim() || null, competence_courrier: m.querySelector("#kc").value.trim() || null,
+      competence_verifiee: m.querySelector("#kcv").checked, email_verifie: m.querySelector("#kev").checked };
     if(!row.nom || !row.source) return toast("Nom et source sont obligatoires.", "ko");
     if(row.email && !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(row.email)) return toast("Adresse e-mail invalide.", "ko");
-    if(v && row.email && !row.email_source_url) return toast("Indiquez où l'adresse e-mail a été trouvée avant de cocher « vérifié ».", "ko");
+    if(row.email_verifie && (!row.email || !row.email_source_url)) return toast("Indiquez l'adresse et la page où elle a été trouvée avant de cocher « e-mail vérifié ».", "ko");
+    if(row.genre_verifie && !row.genre) return toast("Choisissez Madame ou Monsieur avant de cocher « genre vérifié ».", "ko");
+    if(row.competence_verifiee && !row.competence_courrier) return toast("Écrivez la compétence avant de cocher « compétence vérifiée ».", "ko");
+    if(row.competence_courrier && !/^(de |du |des |d['’])/i.test(row.competence_courrier)) return toast("La compétence doit commencer par « de », « du », « des » ou « d' » (ex. « de l'Environnement »).", "ko");
     try{ if(n) await q(DB.from("oc_commune_contacts").insert(row)); else await q(DB.from("oc_commune_contacts").update(row).eq("id", k.id));
       m.remove(); toast("Contact enregistré", "ok"); ongletContacts(); }catch(e){ toast(errMsg(e), "ko"); }
   };
@@ -463,78 +495,230 @@ async function ongletEngagements(){
     </tbody></table></div>`;
 }
 
-/* ---- 2d. Courriels et démarches ---- */
-async function ongletCourriels(){
-  let ms = [], ks = [], os = [];
-  try{ [ms, ks, os] = await Promise.all([
-    q(DB.from("oc_commune_messages").select("id,objet,statut,created_at,valide_le,envoye_le,contact_id").eq("commune_ins", COM.commune_ins).order("created_at", { ascending:false })),
-    q(DB.from("oc_commune_contacts").select("id,nom,fonction,verifie,email").eq("commune_ins", COM.commune_ins).eq("actif", true).order("nom")),
-    q(DB.from("oc_commune_outreach").select("*").eq("commune_ins", COM.commune_ins).order("date_action", { ascending:false })) ]); }catch(e){ return toast(errMsg(e),"ko"); }
-  const verifies = SITES.filter(s => ["public_etabli","probablement_public"].includes(s.categorie) && ["lentilles probables","lentilles confirmées terrain"].includes(s.verification_visuelle)).length;
-  $("#ocontent").innerHTML = `<div class="grid g2"><div class="card"><h2>Préparer un courriel</h2>
-      <p class="small">${verifies ? `<span class="pill ok">${verifies} site(s) public(s) vérifié(s)</span> seront cités.` : `<span class="pill ko">Aucun site public vérifié</span> — vérifiez au moins un site dans l'onglet « Sites et carte ».`}</p>
-      <label>Destinataire</label><select id="mk">${ks.map(k => `<option value="${k.id}">${esc(k.nom)} — ${esc(k.fonction)}${k.verifie?"":" (à vérifier)"}${k.email?"":" (sans e-mail)"}</option>`).join("")}</select>
-      <div style="margin-top:10px"><button class="primary" id="mprep" ${ks.length?"":"disabled"}>Préparer le brouillon</button></div></div>
-    <div class="card"><h2>Courriels de la commune</h2>${ms.length ? `<table><tbody>${ms.map(m => `<tr class="click" data-m="${m.id}"><td>${esc(m.objet)}<div class="small muted">créé le ${dateFr(m.created_at)}${m.envoye_le?` · envoyé le ${dateFr(m.envoye_le)}`:""}</div></td><td>${statutPill(m.statut)}</td></tr>`).join("")}</tbody></table>` : `<p class="muted">Aucun courriel.</p>`}
-      <h2 style="margin-top:16px">Démarches enregistrées</h2>${os.length ? `<ul class="small">${os.map(o => `<li>${dateFr(o.date_action)} · ${esc(o.type)} · ${esc(o.objet||"")}</li>`).join("")}</ul>` : `<p class="muted small">Aucune démarche.</p>`}</div></div>`;
-  $("#mprep").onclick = async () => { try{ const id = await DB.rpc("oc_preparer_courriel", { p_ins: COM.commune_ins, p_contact: $("#mk").value }); location.hash = "#/courriel/" + id; }catch(e){ toast(errMsg(e), "ko"); } };
-  document.querySelectorAll("[data-m]").forEach(tr => tr.onclick = () => location.hash = "#/courriel/" + tr.dataset.m);
+/* ---- 2d. Rapport et mail ---- */
+const estPublic = s => ["public_etabli","probablement_public"].includes(s.categorie);
+const estLentilles = s => ["lentilles probables","lentilles confirmées terrain"].includes(s.verification_visuelle);
+const estTechnique = s => ["station d'épuration","bassin technique / lagunage"].includes(s.verification_visuelle);
+async function params(cle){ const r = await q(DB.from("oc_parametres").select("valeur").eq("cle", cle)); return (r[0]||{}).valeur || {}; }
+
+async function construireRapport(){   // instantané figé de ce que verra la commune (aucune donnée privée nominative)
+  const prio = (await DB.rpc("oc_priorite_communes")).find(r => r.commune_ins === COM.commune_ins) || {};
+  const sites = await DB.rpc("oc_sites_commune", { p_ins: COM.commune_ins });
+  const [refs, engs, mentions] = await Promise.all([
+    q(DB.from("oc_institutional_references").select("code,organisme,formulation,url,date_publication,ordre").eq("statut", "validée").order("ordre")),
+    q(DB.from("oc_commune_engagements").select("theme,titre,url,date_document").eq("commune_ins", COM.commune_ins).order("theme")),
+    params("mention_expert_rapport") ]);
+  const techniques = sites.filter(estTechnique).length;
+  const points = sites.filter(s => estPublic(s) && estLentilles(s)).sort((a,b) => (b.surface_m2||0) - (a.surface_m2||0));
+  return {
+    commune: { nom: COM.nom, province: COM.province, ins: COM.commune_ins }, genere_le: new Date().toISOString(),
+    compteurs: { detectes: prio.detectes||0, publics_etablis: prio.public_etabli||0, probablement_publics: prio.probablement_public||0,
+      prives: Math.max(0, (prio.prive_non_pertinent||0) - techniques), techniques, a_confirmer: prio.a_verifier||0, points_attention: points.length },
+    points_attention: points.map(s => ({ lieu: s.rue || s.localite || COM.nom, localite: s.localite, surface_m2: Math.round((s.surface_m2||0)/10)*10,
+      observation: "Couverture végétale flottante visible sur les images aériennes" + (s.vu_en_ete ? " d'été" : "") + (s.image_ref ? ` (campagne ${String(s.image_ref).replace(/_/g," ").toLowerCase()})` : "") + ".",
+      lat: s.lat ? Math.round(s.lat*1e4)/1e4 : null, lon: s.lon ? Math.round(s.lon*1e4)/1e4 : null })),
+    references: refs.map(r => ({ code: r.code, organisme: r.organisme, formulation: r.formulation, url: r.url, date_publication: r.date_publication })),
+    engagements: engs, mentions,
+    signature: { nom: "François-Xavier Despret", organisation: "Aquiklin", site: "https://www.aquiklin.be" }
+  };
 }
-const statutPill = s => `<span class="pill ${s==="envoyé"?"ok":s==="validé"?"info":s==="annulé"?"":"warn"}">${esc(s)}</span>`;
+async function publierRapport(){
+  const contenu = await construireRapport();
+  const prev = await q(DB.from("oc_commune_reports").select("version").eq("commune_ins", COM.commune_ins).order("version", { ascending:false }).limit(1));
+  const version = ((prev[0]||{}).version || 0) + 1;
+  const [r] = await q(DB.from("oc_commune_reports").insert({ commune_ins: COM.commune_ins, titre: `Ressources aquatiques du territoire de ${COM.nom}`,
+    version, statut: "publié", publie_le: new Date().toISOString(), valide_le: new Date().toISOString(), contenu }).select("id,version,publie_le,contenu"));
+  return r;
+}
+const memesChiffres = (a, b) => ["detectes","publics_etablis","points_attention"].every(k => (a||{})[k] === (b||{})[k]);
+
+async function creerLien(reportId, contactId){
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const jeton = btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(jeton)))].map(b => b.toString(16).padStart(2,"0")).join("");
+  await q(DB.from("oc_commune_access_tokens").insert({ token_hash: hash, commune_ins: COM.commune_ins, report_id: reportId, contact_id: contactId, libelle: "Lien envoyé par courriel" }));
+  return location.origin + "/rapport#" + jeton;   // le lien complet n'est conservé que dans le courriel (table réservée au personnel)
+}
+
+function formuleNombre(n){
+  if(n >= 20){ const m = Math.floor(n/10)*10; return { texte: (m < n ? "plus de " + m : String(m)) + " pièces d'eau", objet: (m < n ? "plus de " + m : String(m)) + " ressources aquatiques identifiées" }; }
+  if(n >= 10) return { texte: "plus de 10 pièces d'eau", objet: "plus de 10 ressources aquatiques identifiées" };
+  if(n >= 3)  return { texte: "plusieurs pièces d'eau", objet: null };
+  if(n >= 1)  return { texte: "un ensemble de pièces d'eau et d'infrastructures aquatiques", objet: null };
+  return null;
+}
+function redigerMail(k, c, rapport, lien, signature){
+  const F = k.genre === "F", civ = F ? "Madame" : "Monsieur", nomA = k.nom_appel || nomAppelAuto(k.nom);
+  const cp = c.compteurs, nb = formuleNombre(cp.detectes);
+  if(!nb) throw new Error("Aucune pièce d'eau détectée : pas de mail possible pour cette commune.");
+  const refs = rapport.contenu.references || [];
+  const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
+  const parRefs = refs.map((r, i) => i === 0 ? `Saviez-vous que, ${r.formulation} ?` : cap(r.formulation) + ".");
+  let constat = `Notre analyse cartographique a identifié ${nb.texte} sur le territoire de ${c.commune.nom}`;
+  if(cp.publics_etablis >= 3){ const p = formuleNombre(cp.publics_etablis); constat += `, dont ${p.texte.replace(" pièces d'eau","").replace("plusieurs pièces d'eau","plusieurs")} relevant du domaine public ou d'un gestionnaire public`; }
+  constat += ".";
+  const blocs = [];
+  if(cp.points_attention >= 2) blocs.push("Plusieurs pièces d'eau présentent par ailleurs des évolutions ou couvertures végétales qui pourraient mériter une observation complémentaire.");
+  else if(cp.points_attention === 1) blocs.push("Une pièce d'eau présente par ailleurs une couverture végétale qui pourrait mériter une observation complémentaire.");
+  else blocs.push("Le rapport permet également de disposer d'un état de référence qui pourra servir à suivre l'évolution de ces ressources dans le temps.");
+  if((cp.bassins_retention||0) >= 2) blocs.push("Le territoire comprend également plusieurs ouvrages de rétention et de gestion des eaux pluviales, qui participent à la résilience hydraulique de la commune.");
+  if((cp.zones_humides||0) >= 2) blocs.push("Plusieurs zones humides ont également été identifiées, renforçant l'intérêt écologique du patrimoine aquatique communal.");
+  const objet = nb.objet ? `${c.commune.nom} – ${nb.objet}` : cp.points_attention >= 1 ? `${c.commune.nom} – votre rapport sur les pièces d'eau` : `${c.commune.nom} – état des ressources aquatiques du territoire`;
+  const corps = [
+    `${civ} ${nomA},`,
+    `En votre qualité ${F ? "d'échevine" : "d'échevin"} en charge ${k.competence_courrier}, nous souhaitions attirer votre attention sur un enjeu qui prend une importance croissante pour les communes : la connaissance et la préservation de leurs ressources aquatiques.`,
+    ...parRefs,
+    "Dans un contexte d'augmentation des températures, de périodes de sécheresse plus marquées et d'épisodes de fortes pluies, les mares, étangs, zones humides, bassins de rétention et autres ressources aquatiques jouent un rôle de plus en plus important pour la biodiversité, la gestion de l'eau et la résilience du territoire.",
+    constat, ...blocs,
+    "Nous avons préparé gratuitement pour votre commune un rapport de synthèse permettant de visualiser ces éléments, de distinguer les ressources publiques, privées et techniques et d'identifier les situations qui pourraient mériter une attention particulière.",
+    `Vous pouvez consulter directement ce rapport ici :\n${lien}`,
+    "Ce rapport constitue une première lecture cartographique du territoire. Il ne remplace pas une observation de terrain ni, lorsque nécessaire, une analyse de l'eau, mais il permet de disposer rapidement d'une vue d'ensemble de la situation.",
+    "Si certaines observations retiennent votre attention, nous pouvons également vous rencontrer afin de vous expliquer notre méthode de travail, examiner avec vous les pièces d'eau concernées et réfléchir aux pistes permettant d'en améliorer ou d'en préserver durablement l'équilibre.",
+    "Cette première rencontre est proposée gratuitement et sans engagement.",
+    `Bien cordialement,\n\n${signature}`
+  ].join("\n\n");
+  return { objet, corps, donnees: { detectes: cp.detectes, publics_etablis: cp.publics_etablis, points_attention: cp.points_attention,
+    formulation_nombre: nb.texte, references: refs.map(r => r.code).filter(Boolean), version_rapport: rapport.version } };
+}
+
+async function ongletCourriels(){
+  let ms = [], ks = [], os = [], reps = [];
+  try{ [ms, ks, os, reps] = await Promise.all([
+    q(DB.from("oc_commune_messages").select("id,objet,statut,created_at,valide_le,envoye_le,contact_id").eq("commune_ins", COM.commune_ins).order("created_at", { ascending:false })),
+    q(DB.from("oc_commune_contacts").select("*").eq("commune_ins", COM.commune_ins).eq("actif", true).order("nom")),
+    q(DB.from("oc_commune_outreach").select("*").eq("commune_ins", COM.commune_ins).order("date_action", { ascending:false })),
+    q(DB.from("oc_commune_reports").select("id,version,statut,publie_le,contenu").eq("commune_ins", COM.commune_ins).eq("statut","publié").order("version", { ascending:false }).limit(1)) ]); }
+  catch(e){ return toast(errMsg(e),"ko"); }
+  const rap = reps[0];
+  const echevins = ks.filter(k => k.fonction === "Échevin" && !k.opposition_contact).map(k => ({ ...k, sc: scoreCompetence(k) })).sort((a,b) => b.sc - a.sc);
+  const bourg = ks.find(k => k.fonction === "Bourgmestre" && k.verifie && k.email_verifie && k.email);
+  const pret = k => k.verifie && k.genre && k.genre_verifie && k.competence_courrier && k.competence_verifiee && k.email && k.email_verifie;
+  const manque = k => [!k.verifie && "nom/fonction", !(k.genre && k.genre_verifie) && "genre", !(k.competence_courrier && k.competence_verifiee) && "compétence", !(k.email && k.email_verifie) && "e-mail"].filter(Boolean);
+  $("#ocontent").innerHTML = `<div class="grid g2"><div>
+    <div class="card"><h2>1 · Rapport communal</h2>
+      ${rap ? `<p class="small"><span class="pill ok">version ${rap.version}</span> publiée le ${dateFr(rap.publie_le)} · ${rap.contenu.compteurs.detectes} pièces d'eau · ${rap.contenu.compteurs.points_attention} point(s) d'attention</p>` : `<p class="small"><span class="pill warn">aucun rapport</span> il sera généré automatiquement à la préparation du mail.</p>`}
+      <div class="row"><button id="rgen">Générer une nouvelle version</button><button id="rprev">Aperçu du rapport ↗</button></div>
+      <p class="muted small">Le rapport ne montre que des chiffres, les sites publics vérifiés et des informations institutionnelles : aucun propriétaire privé.</p></div>
+    <div class="card"><h2>2 · Préparer le mail</h2>
+      <label>À — échevin(e) le plus directement concerné(e) (proposition automatique)</label>
+      <select id="mk">${echevins.map(k => `<option value="${k.id}">${esc(k.nom)} — ${esc(k.attributions||k.competence_courrier||"")}${pret(k) ? " ✓" : " (à compléter : " + manque(k).join(", ") + ")"}</option>`).join("") || "<option value=''>Aucun échevin enregistré</option>"}</select>
+      <p class="small" id="mkinfo"></p>
+      <label class="row" style="color:var(--ink)"><input type="checkbox" id="mcc" style="width:auto" ${bourg ? "checked" : "disabled"}> Cc : ${bourg ? `${esc(bourg.nom)} (bourgmestre) &lt;${esc(bourg.email)}&gt;` : "bourgmestre — adresse non vérifiée (onglet Élus et contacts)"}</label>
+      <div style="margin-top:10px"><button class="primary" id="mprep" ${echevins.length ? "" : "disabled"}>Préparer le mail</button></div>
+      <p class="muted small">Le mail est préparé, jamais envoyé : vous le copiez dans votre messagerie.</p></div></div>
+    <div class="card"><h2>Mails de la commune</h2>${ms.length ? `<table><tbody>${ms.map(m => `<tr class="click" data-m="${m.id}"><td>${esc(m.objet)}<div class="small muted">créé le ${dateFr(m.created_at)}${m.envoye_le?` · envoyé le ${dateFr(m.envoye_le)}`:""}</div></td><td>${statutPill(m.statut)}</td></tr>`).join("")}</tbody></table>` : `<p class="muted">Aucun mail.</p>`}
+      <h2 style="margin-top:16px">Démarches enregistrées</h2>${os.length ? `<ul class="small">${os.map(o => `<li>${dateFr(o.date_action)} · ${esc(o.type)} · ${esc(o.objet||"")}</li>`).join("")}</ul>` : `<p class="muted small">Aucune démarche.</p>`}</div></div>`;
+  const info = () => { const k = echevins.find(x => x.id === $("#mk").value); if(!k) return;
+    $("#mkinfo").innerHTML = pret(k) ? `<span class="pill ok">toutes les données sont vérifiées</span>` : `<span class="pill ko">à compléter : ${manque(k).join(", ")}</span> — <a href="#/commune/${esc(COM.commune_ins)}/contacts">Élus et contacts</a>`; };
+  if(echevins.length){ $("#mk").onchange = info; info(); }
+  $("#rgen").onclick = async () => { try{ const r = await publierRapport(); toast(`Rapport version ${r.version} publié`, "ok"); ongletCourriels(); }catch(e){ toast(errMsg(e), "ko"); } };
+  $("#rprev").onclick = async () => { try{ const contenu = rap ? rap.contenu : await construireRapport();
+      try{ localStorage.setItem("oc-apercu-rapport", JSON.stringify({ titre: `Ressources aquatiques du territoire de ${COM.nom}`, version: rap ? rap.version : 0, publie_le: rap ? rap.publie_le : null, contenu })); }catch(e){}
+      window.open("/rapport#apercu", "_blank"); }catch(e){ toast(errMsg(e), "ko"); } };
+  document.querySelectorAll("[data-m]").forEach(tr => tr.onclick = () => location.hash = "#/courriel/" + tr.dataset.m);
+  $("#mprep").onclick = async () => {
+    const k = echevins.find(x => x.id === $("#mk").value); if(!k) return;
+    if(!(k.genre && k.competence_courrier)) return toast("Indiquez d'abord le genre et la compétence de ce contact (onglet Élus et contacts).", "ko");
+    const btn = $("#mprep"); btn.disabled = true;
+    try{
+      // rapport à jour (régénéré si les chiffres ont changé)
+      const prio = (await DB.rpc("oc_priorite_communes")).find(r => r.commune_ins === COM.commune_ins) || {};
+      let r = rap;
+      const actuel = { detectes: prio.detectes, publics_etablis: prio.public_etabli, points_attention: SITES.filter(s => estPublic(s) && estLentilles(s)).length };
+      if(!r || !memesChiffres(r.contenu.compteurs, actuel)) r = await publierRapport();
+      const lien = await creerLien(r.id, k.id);
+      const signature = ((await params("signature_courriel")).texte) || "François-Xavier Despret\nAquiklin";
+      const mail = redigerMail(k, r.contenu, r, lien, signature);
+      const cc = $("#mcc").checked && bourg ? bourg : null;
+      const [m] = await q(DB.from("oc_commune_messages").insert({ commune_ins: COM.commune_ins, contact_id: k.id, report_id: r.id, objet: mail.objet, corps: mail.corps,
+        destinataire_email: k.email || null, cc_contact_id: cc ? cc.id : null, cc_email: cc ? cc.email : null, lien_rapport: lien, donnees: mail.donnees, sites: r.contenu.points_attention,
+        campaign_id: null }).select("id"));
+      location.hash = "#/courriel/" + m.id;
+    }catch(e){ toast(errMsg(e), "ko"); btn.disabled = false; }
+  };
+}
+const statutPill = s => `<span class="pill ${s==="envoyé"?"ok":s==="validé"?"info":s==="annulé"?"":"warn"}">${s==="validé" ? "MAIL PRÊT" : esc(s)}</span>`;
 
 /* =====================================================================
-   3. COURRIEL : relire → valider → copier → marquer envoyé
+   3. MAIL : relire → éditer → MAIL PRÊT → copier → marquer envoyé
    ===================================================================== */
 async function viewCourriel(id){
   $("#app").innerHTML = `<p class="muted">Chargement…</p>`;
   let m, k, c, ctl;
   try{ m = await q(DB.from("oc_commune_messages").select("*").eq("id", id).single());
     [k, c] = await Promise.all([ m.contact_id ? q(DB.from("oc_commune_contacts").select("*").eq("id", m.contact_id).single()) : null, q(DB.from("oc_communes").select("nom,commune_ins").eq("commune_ins", m.commune_ins).single()) ]);
-    ctl = await DB.rpc("oc_controles_envoi", { p_ins: m.commune_ins, p_contact: m.contact_id });
+    ctl = m.donnees ? await DB.rpc("oc_controles_mail", { p: m }) : await DB.rpc("oc_controles_envoi", { p_ins: m.commune_ins, p_contact: m.contact_id });
   }catch(e){ $("#app").innerHTML = `<div class="card"><b>Erreur :</b> ${esc(errMsg(e))}</div>`; return; }
   const edit = m.statut === "brouillon";
-  const etapes = [["brouillon","1 · Relire et corriger"],["validé","2 · Validé : copier dans la messagerie"],["envoyé","3 · Envoyé"]];
+  const a = m.destinataire_email || k?.email || "";
+  const champ = (lbl, idc, val, multi) => `<label>${lbl}</label><div class="row" style="align-items:flex-start">${multi
+      ? `<div class="mail" id="${idc}" style="flex:1">${esc(val)}</div>` : `<input readonly id="${idc}" value="${esc(val)}" style="flex:1">`}
+    <button type="button" data-copy="${idc}">Copier</button></div>`;
   $("#app").innerHTML = `<p class="small"><a href="#/commune/${esc(c.commune_ins)}/courriels">← ${esc(c.nom)}</a></p>
-    <div class="row"><h1>Courriel — ${esc(c.nom)}</h1><span style="flex:1"></span>${statutPill(m.statut)}</div>
-    <div class="tabs">${etapes.map(([s,l]) => `<button disabled class="${s===m.statut?"on":""}">${l}</button>`).join("")}</div>
+    <div class="row"><h1>Mail — ${esc(c.nom)}</h1><span style="flex:1"></span>${statutPill(m.statut)}</div>
     <div class="grid g2"><div class="card">
-      <label>Destinataire</label><div class="row"><input readonly value="${esc(k ? `${k.nom} <${k.email||"pas d'e-mail"}>` : "—")}" style="flex:1">
-        ${k?.email_source_url ? `<a class="btn" href="${esc(k.email_source_url)}" target="_blank" rel="noopener">Où l'adresse a été trouvée ↗</a>` : ""}</div>
-      ${k ? `<p class="small" style="margin:4px 0 0">${k.verifie ? `<span class="pill ok">adresse vérifiée le ${dateFr(k.verifie_le)}</span>` : `<span class="pill ko">adresse non vérifiée</span> — <a href="#/commune/${esc(c.commune_ins)}/contacts">la contrôler</a>`}</p>` : ""}
-      <label>Objet</label><input id="mo" value="${esc(m.objet)}" ${edit?"":"readonly"}>
-      <label>Texte</label>${edit ? `<textarea id="mc" style="min-height:420px">${esc(m.corps)}</textarea>` : `<div class="mail" id="mcv">${esc(m.corps)}</div>`}
+      ${champ("À", "fa", a)}${champ("Cc", "fc", m.cc_email || "")}${champ("Objet", "fo", m.objet)}
+      <div id="zmsg">${champ("Message", "fm", m.corps, true)}</div>
+      ${champ("Lien du rapport", "fl", m.lien_rapport || "")}
       <div class="row" style="margin-top:12px">
-        ${edit ? `<button id="msave">Enregistrer les corrections</button><button class="primary" id="mval" ${ctl.pret?"":"disabled"}>Valider</button>` : ""}
-        ${m.statut === "validé" ? `<button id="cpo">Copier l'objet</button><button id="cpc">Copier le texte</button>
-           ${k?.email ? `<a class="btn" href="mailto:${encodeURIComponent(k.email)}?subject=${encodeURIComponent(m.objet)}&body=${encodeURIComponent(m.corps)}">Ouvrir dans ma messagerie</a>` : ""}
-           <button class="primary" id="msent">J'ai envoyé ce courriel</button><button id="mback">Repasser en brouillon</button>` : ""}
+        <button class="primary" id="cpall">COPIER TOUT</button>
+        ${edit ? `<button id="medit">ÉDITER LE MESSAGE</button>` : ""}
+        ${m.lien_rapport ? `<a class="btn" href="${esc(m.lien_rapport)}" target="_blank" rel="noopener">Tester le lien ↗</a>` : ""}
+        ${a ? `<a class="btn" href="mailto:${encodeURIComponent(a)}?${m.cc_email ? "cc=" + encodeURIComponent(m.cc_email) + "&" : ""}subject=${encodeURIComponent(m.objet)}&body=${encodeURIComponent(m.corps)}">Ouvrir dans ma messagerie</a>` : ""}
+      </div>
+      <div class="row" style="margin-top:12px">
+        ${edit ? `<button class="primary" id="mval" ${ctl.pret ? "" : "disabled"}>Marquer « MAIL PRÊT »</button>` : ""}
+        ${m.statut === "validé" ? `<button class="primary" id="msent">J'ai envoyé ce mail</button><button id="mback">Repasser en brouillon</button>` : ""}
         ${m.statut === "envoyé" ? `<span class="muted">Envoyé le ${dateFr(m.envoye_le)} — démarche enregistrée.</span>` : ""}
-        ${["brouillon","validé"].includes(m.statut) ? `<span style="flex:1"></span><button class="danger" id="mcancel">Annuler ce courriel</button>` : ""}
+        ${["brouillon","validé"].includes(m.statut) ? `<span style="flex:1"></span><button class="danger" id="mcancel">Annuler ce mail</button>` : ""}
       </div></div>
-    <div class="card"><h2>Contrôles avant envoi</h2>
-      <ul class="checks">${(ctl.controles||[]).map(x => `<li>${x.ok ? '<span class="pill ok">✓</span>' : `<span class="pill ${x.bloquant?"ko":"warn"}">${x.bloquant?"✗ bloquant":"! à noter"}</span>`} ${esc(x.libelle)}</li>`).join("")}</ul>
-      <p class="small" style="margin-top:10px">${ctl.pret ? '<span class="pill ok">Prêt à valider</span>' : '<span class="pill ko">Validation impossible</span> tant qu\'un contrôle bloquant n\'est pas rempli.'}</p>
-      ${m.controles ? `<p class="muted small">Contrôles enregistrés lors de la validation du ${dateFr(m.valide_le)}.</p>` : ""}
-      <h2 style="margin-top:14px">Sites cités</h2>
-      <ul class="small">${(m.sites||[]).map(s => `<li>${esc(s.lieu)} — ${fmt(s.surface_m2)} m²${s.communal?" — propriété communale":""}</li>`).join("") || '<li class="muted">Aucun.</li>'}</ul>
-      <p class="muted small">Le texte ne cite que des sites publics que vous avez vérifiés. Toute correction après validation impose une nouvelle validation.</p></div></div>`;
+    <div class="card"><h2>Contrôles avant « MAIL PRÊT »</h2>
+      <ul class="checks">${(ctl.controles||[]).map(x => `<li>${x.ok ? '<span class="pill ok">✓</span>' : `<span class="pill ${x.bloquant === false ? "warn" : "ko"}">${x.bloquant === false ? "! à noter" : "✗"}</span>`} ${esc(x.libelle)}</li>`).join("")}</ul>
+      <p class="small" style="margin-top:10px">${ctl.pret ? '<span class="pill ok">Toutes les conditions sont remplies</span>' : '<span class="pill ko">« MAIL PRÊT » impossible</span> tant qu\'une condition n\'est pas remplie.'}</p>
+      ${k ? `<p class="small"><a href="#/commune/${esc(c.commune_ins)}/contacts">Compléter / vérifier le contact</a>${k.email_source_url ? ` · <a href="${esc(k.email_source_url)}" target="_blank" rel="noopener">page où l'adresse a été trouvée ↗</a>` : ""}</p>` : ""}
+      ${m.donnees ? `<h2 style="margin-top:14px">Données injectées</h2><ul class="small"><li>${esc(m.donnees.formulation_nombre)} (${m.donnees.detectes} détectées)</li><li>Publics établis : ${m.donnees.publics_etablis}${m.donnees.publics_etablis >= 3 ? " (cités)" : " (non cités : moins de 3)"}</li><li>Points d'attention : ${m.donnees.points_attention}</li><li>Références : ${esc((m.donnees.references||[]).join(", ") || "aucune")}</li><li>Rapport version ${m.donnees.version_rapport}</li></ul>` : ""}
+      <p class="muted small">Aucun envoi automatique : le mail part de votre messagerie.</p></div></div>`;
+  document.querySelectorAll("[data-copy]").forEach(b => b.onclick = () => { const el = document.getElementById(b.dataset.copy); copy(el.value ?? el.textContent, ({fa:"À",fc:"Cc",fo:"Objet",fm:"Message",fl:"Lien"})[b.dataset.copy]); });
+  $("#cpall").onclick = () => copy(`À : ${a}\n${m.cc_email ? "Cc : " + m.cc_email + "\n" : ""}Objet : ${m.objet}\n\n${m.corps}`, "Tout");
   const upd = async (patch, okMsg) => { try{ await q(DB.from("oc_commune_messages").update(patch).eq("id", id)); toast(okMsg, "ok"); viewCourriel(id); }catch(e){ toast(errMsg(e), "ko"); } };
   if(edit){
-    $("#msave").onclick = () => upd({ objet: $("#mo").value, corps: $("#mc").value }, "Corrections enregistrées");
-    $("#mval").onclick = async () => { try{ await q(DB.from("oc_commune_messages").update({ objet: $("#mo").value, corps: $("#mc").value }).eq("id", id)); }catch(e){ return toast(errMsg(e), "ko"); }
-      upd({ statut: "validé" }, "Courriel validé"); };
+    $("#medit").onclick = () => { $("#zmsg").innerHTML = `<label>Objet</label><input id="eo" value="${esc(m.objet)}"><label>Message</label><textarea id="ec" style="min-height:460px">${esc(m.corps)}</textarea>
+      <div class="row" style="margin-top:8px"><button class="primary" id="esave">Enregistrer les modifications</button><button id="ecancel">Annuler</button></div>`;
+      $("#esave").onclick = () => upd({ objet: $("#eo").value, corps: $("#ec").value }, "Modifications enregistrées"); $("#ecancel").onclick = () => viewCourriel(id); };
+    $("#mval").onclick = () => upd({ statut: "validé" }, "MAIL PRÊT");
   }
   if(m.statut === "validé"){
-    $("#cpo").onclick = () => copy(m.objet, "Objet"); $("#cpc").onclick = () => copy(m.corps, "Texte");
-    $("#msent").onclick = () => { if(confirm("Confirmez-vous avoir envoyé ce courriel depuis votre messagerie ?")) upd({ statut: "envoyé" }, "Envoi enregistré"); };
+    $("#msent").onclick = () => { if(confirm("Confirmez-vous avoir envoyé ce mail depuis votre messagerie ?")) upd({ statut: "envoyé" }, "Envoi enregistré"); };
     $("#mback").onclick = () => upd({ statut: "brouillon" }, "Repassé en brouillon");
   }
-  if($("#mcancel")) $("#mcancel").onclick = () => { if(confirm("Annuler ce courriel ?")) upd({ statut: "annulé" }, "Courriel annulé"); };
+  if($("#mcancel")) $("#mcancel").onclick = () => { if(confirm("Annuler ce mail ?")) upd({ statut: "annulé" }, "Mail annulé"); };
+}
+
+/* ---- références institutionnelles ---- */
+async function viewReferences(){
+  $("#app").innerHTML = `<h1>Références institutionnelles</h1><p class="muted">Chiffres officiels cités dans les mails et les rapports. Seules les références <b>validées</b> sont utilisées ; une nouvelle valeur validée remplace l'ancienne dans les mails suivants.</p><div class="card"><p class="muted">Chargement…</p></div>`;
+  let rs; try{ rs = await q(DB.from("oc_institutional_references").select("*").not("code","is",null).order("ordre")); }catch(e){ $("#app .card").innerHTML = esc(errMsg(e)); return; }
+  $("#app .card").innerHTML = rs.map(r => `<div class="site" style="cursor:default"><div class="row"><b>${esc(r.organisme)}</b> — ${esc(r.titre)}<span style="flex:1"></span>
+      <span class="pill ${r.statut==="validée"?"ok":r.statut==="obsolète"?"":"warn"}">${esc(r.statut)}</span></div>
+      <p style="margin:6px 0">« ${esc(r.formulation||"")} »</p>
+      <div class="small muted">Chiffre : ${fmt(r.chiffre,1)} ${esc(r.unite||"")} · publié le ${dateFr(r.date_publication)} · vérifié le ${dateFr(r.verifie_le)} (${esc(r.verifie_par||"")}) · <a href="${esc(r.url)}" target="_blank" rel="noopener">source ↗</a></div>
+      ${r.resume ? `<div class="small muted">${esc(r.resume)}</div>` : ""}
+      <div class="row" style="margin-top:6px"><button data-ed="${r.id}">Modifier</button>${r.statut !== "validée" ? `<button class="primary" data-val="${r.id}">J'ai vérifié la source : valider</button>` : ""}${r.statut !== "obsolète" ? `<button data-obs="${r.id}">Marquer obsolète</button>` : ""}</div></div>`).join("");
+  const upd = async (id, patch, msg) => { try{ await q(DB.from("oc_institutional_references").update(patch).eq("id", id)); toast(msg, "ok"); viewReferences(); }catch(e){ toast(errMsg(e), "ko"); } };
+  document.querySelectorAll("[data-val]").forEach(b => b.onclick = () => upd(b.dataset.val, { statut: "validée", verifie_le: today(), verifie_par: USER.email }, "Référence validée"));
+  document.querySelectorAll("[data-obs]").forEach(b => b.onclick = () => upd(b.dataset.obs, { statut: "obsolète" }, "Référence marquée obsolète"));
+  document.querySelectorAll("[data-ed]").forEach(b => b.onclick = () => { const r = rs.find(x => x.id === b.dataset.ed);
+    const md = modal(`<h1>${esc(r.organisme)}</h1><label>Formulation (sans majuscule initiale : « selon … »)</label><textarea id="rf">${esc(r.formulation||"")}</textarea>
+      <div class="grid g2"><div><label>Chiffre</label><input id="rc" value="${esc(r.chiffre??"")}"></div><div><label>Date de publication</label><input id="rd" type="date" value="${esc(r.date_publication||"")}"></div></div>
+      <label>Adresse de la source</label><input id="ru" value="${esc(r.url||"")}"><p class="muted small">Toute modification repasse la référence « à valider ».</p>
+      <div style="margin-top:10px"><button class="primary" id="rsave">Enregistrer</button></div>`);
+    md.querySelector("#rsave").onclick = async () => { await upd(r.id, { formulation: md.querySelector("#rf").value.trim(), chiffre: md.querySelector("#rc").value ? Number(md.querySelector("#rc").value.replace(",", ".")) : null,
+      date_publication: md.querySelector("#rd").value || null, url: md.querySelector("#ru").value.trim(), statut: "à valider" }, "Référence enregistrée (à valider)"); md.remove(); }; });
 }
 
 /* ---- liste de tous les courriels ---- */
 async function viewCourriels(){
-  $("#app").innerHTML = `<h1>Courriels</h1><div class="card"><p class="muted">Chargement…</p></div>`;
+  $("#app").innerHTML = `<h1>Mails</h1><div class="card"><p class="muted">Chargement…</p></div>`;
   let ms, cs; try{ [ms, cs] = await Promise.all([ q(DB.from("oc_commune_messages").select("id,commune_ins,objet,statut,created_at,envoye_le").order("created_at", { ascending:false })), q(DB.from("oc_communes").select("commune_ins,nom")) ]); }
   catch(e){ $("#app .card").innerHTML = esc(errMsg(e)); return; }
   const nom = Object.fromEntries(cs.map(c => [c.commune_ins, c.nom]));
@@ -546,13 +730,14 @@ async function viewCourriels(){
 function viewAide(){
   $("#app").innerHTML = `<h1>Mode d'emploi</h1><div class="card">
     <ol>
-      <li><b>Choisir une commune</b> dans le tableau de prospection (triable par colonne ; cliquez sur un score pour son calcul).</li>
-      <li><b>Vérifier les sites</b> (onglet « Sites et carte », filtre « À vérifier ») : pour chaque site, regardez l'orthophoto (été 2023 de préférence) et cliquez sur ce que vous voyez. Les stations d'épuration proches sont déjà écartées automatiquement ; contrôlez l'onglet « Proches d'une station ».</li>
-      <li><b>Vérifier le destinataire</b> (onglet « Élus et contacts ») : source, adresse e-mail, case « vérifié ».</li>
-      <li><b>Préparer le courriel</b> (onglet « Courriels et démarches »). Le texte ne cite que les sites vérifiés.</li>
-      <li><b>Relire, corriger, valider.</b> La validation est refusée tant qu'un contrôle bloquant n'est pas rempli.</li>
-      <li><b>Copier</b> l'objet et le texte dans votre messagerie (ou « Ouvrir dans ma messagerie »), envoyer.</li>
-      <li><b>Cliquer « J'ai envoyé ce courriel »</b> : la démarche est enregistrée et la commune passe en « contactée ».</li>
+      <li><b>Choisir une commune</b> dans le tableau de prospection (triable ; cliquez sur un score pour son calcul).</li>
+      <li><b>Vérifier les sites</b> (onglet « Sites et carte », filtre « À vérifier ») : regardez l'orthophoto (été 2023 de préférence) et cliquez sur ce que vous voyez. Les stations d'épuration proches sont écartées automatiquement.</li>
+      <li><b>Compléter les élus</b> (onglet « Élus et contacts ») : pour l'échevin(e) concerné(e), genre, compétence telle qu'écrite dans le mail, adresse e-mail (Google ou site communal) et page où elle figure, puis cocher chaque « vérifié ». Idem pour le bourgmestre s'il doit être en copie.</li>
+      <li><b>Valider les chiffres officiels</b> (menu « Références ») : seules les références validées sont citées.</li>
+      <li><b>Préparer le mail</b> (onglet « Rapport et mail ») : le rapport est publié, un lien unique créé et le mail rédigé automatiquement.</li>
+      <li><b>Relire</b>, éditer si besoin, puis <b>« MAIL PRÊT »</b> : refusé tant qu'une des conditions n'est pas remplie.</li>
+      <li><b>Copier</b> (À, Cc, Objet, Message, Lien ou Tout) dans votre messagerie et envoyer vous-même.</li>
+      <li><b>« J'ai envoyé ce mail »</b> : la démarche est enregistrée et la commune passe en « contactée ».</li>
     </ol>
     <p class="muted small">Cet outil est indépendant de l'Observatoire actuel : il n'écrit que dans les tables oc_* et ne lit l'Observatoire qu'au travers de fonctions de lecture. Version ${esc(CFG.VERSION)}.</p></div>`;
 }

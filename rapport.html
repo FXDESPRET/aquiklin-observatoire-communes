@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Rapport communal · Ressources aquatiques</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#f7f5ef; --panel:#ffffff; --ink:#2b333a; --ink2:#363F47; --muted:#5c6b66; --line:#e6e0cf;
+  --accent:#4a7c59; --accent2:#3d6a4b; --soft:#eef3ea; --soft2:#faf8f2; --warn:#9a6a00; --warn-bg:#fdf3dc;
+  --serif:Georgia,'Iowan Old Style',serif; --shadow:0 2px 12px rgba(15,48,42,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --bg:#0f1715; --panel:#17211e; --ink:#e3eeea; --ink2:#bfd0ca; --muted:#8fa49c; --line:#2a3834; --soft:#1d2d29; --soft2:#14201d; --accent:#2fb39d; --accent2:#5fd0bc; --warn:#f0c560; --warn-bg:#3a2f12; --shadow:0 2px 12px rgba(0,0,0,.45); }
+}
+:root[data-theme="dark"]{ --bg:#0f1715; --panel:#17211e; --ink:#e3eeea; --ink2:#bfd0ca; --muted:#8fa49c; --line:#2a3834; --soft:#1d2d29; --soft2:#14201d; --accent:#2fb39d; --accent2:#5fd0bc; --warn:#f0c560; --warn-bg:#3a2f12; }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+header{background:var(--panel);border-bottom:1px solid var(--line);padding:14px 16px}
+header .in{max-width:900px;margin:0 auto;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+header b{font-family:var(--serif);font-size:20px;color:var(--accent)} header span{color:var(--muted)}
+main{max-width:900px;margin:0 auto;padding:20px 16px 40px}
+h1{font-family:var(--serif);font-weight:normal;font-size:30px;line-height:1.2;margin:8px 0 4px;color:var(--ink2)}
+h2{font-family:var(--serif);font-weight:normal;font-size:21px;margin:0 0 10px;color:var(--ink2)}
+.muted{color:var(--muted)} .small{font-size:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:18px;margin:16px 0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kpi{background:var(--soft2);border:1px solid var(--line);border-radius:10px;padding:12px}
+.kpi b{display:block;font-size:28px;color:var(--ink2);font-family:var(--serif)} .kpi span{font-size:14px;color:var(--muted)}
+.kpi.main{background:var(--soft);border-color:var(--accent)}
+table{width:100%;border-collapse:collapse;font-size:15px} th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:top} th{color:var(--ink2)}
+.note{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:12px 14px;font-size:15px}
+.bar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--soft);margin:10px 0 6px}
+.bar i{display:block;height:100%}
+.leg{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted)} .leg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+footer{max-width:900px;margin:0 auto;padding:0 16px 40px;color:var(--muted);font-size:13px}
+.btn{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600}
+@media print{header,.noprint{display:none} body{background:#fff} .card{box-shadow:none}}
+</style>
+</head>
+<body>
+<header><div class="in"><b>Aquiklin</b><span>Observatoire des plans d'eau · Rapport communal</span></div></header>
+<main id="app"><p class="muted">Chargement du rapport…</p></main>
+<footer id="foot"></footer>
+<script>
+/* Page publique d'un rapport communal. Accès uniquement par lien (jeton après « # », jamais envoyé au serveur web).
+   La base ne renvoie que le contenu figé du rapport publié, via la fonction oc_portail. */
+const SB_URL = "https://dnunawdqljlvkhwvwxxa.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ";
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = n => n == null ? "—" : Number(n).toLocaleString("fr-BE");
+const dateFr = d => d ? new Date(d).toLocaleDateString("fr-BE", { day:"numeric", month:"long", year:"numeric" }) : "";
+const app = document.getElementById("app");
+
+function render(titre, version, publie_le, c, apercu){
+  const k = c.compteurs || {}, total = Math.max(1, k.detectes || 0);
+  const parts = [["Publics (établis)", k.publics_etablis, "#2e7d4f"], ["Publics probables (à confirmer)", k.probablement_publics, "#7fb38f"],
+                 ["Privés", k.prives, "#b9b29a"], ["Infrastructures techniques", k.techniques, "#2f80c9"], ["Statut à confirmer", k.a_confirmer, "#d5d0c0"]];
+  document.title = `${c.commune.nom} · Ressources aquatiques du territoire`;
+  app.innerHTML = `
+    ${apercu ? `<p class="note noprint">Aperçu interne : ce rapport n'est visible par la commune qu'au travers d'un lien unique.</p>` : ""}
+    <p class="muted small">${esc(c.commune.province || "")}${publie_le ? " · rapport du " + dateFr(publie_le) : ""}${version ? " · version " + version : ""}</p>
+    <h1>${esc(titre || ("Ressources aquatiques du territoire de " + c.commune.nom))}</h1>
+    <p class="muted">Première lecture cartographique des pièces d'eau présentes sur le territoire communal.</p>
+
+    <section class="card"><h2>Le patrimoine aquatique en chiffres</h2>
+      <div class="kpis">
+        <div class="kpi main"><b>${fmt(k.detectes)}</b><span>pièces d'eau identifiées sur le territoire</span></div>
+        <div class="kpi"><b>${fmt((k.publics_etablis||0) + (k.probablement_publics||0))}</b><span>relevant probablement d'un gestionnaire public, dont ${fmt(k.publics_etablis)} établie(s)</span></div>
+        <div class="kpi"><b>${fmt(k.techniques)}</b><span>infrastructures techniques (stations d'épuration, bassins techniques)</span></div>
+        <div class="kpi"><b>${fmt(k.points_attention)}</b><span>point(s) d'attention vérifié(s)</span></div>
+      </div>
+      <div class="bar" role="img" aria-label="Répartition des pièces d'eau par statut">${parts.map(([l,v,col]) => v ? `<i style="width:${v/total*100}%;background:${col}" title="${esc(l)} : ${v}"></i>` : "").join("")}</div>
+      <div class="leg">${parts.map(([l,v,col]) => `<span><i style="background:${col}"></i>${esc(l)} : ${fmt(v||0)}</span>`).join("")}</div>
+      <p class="small muted" style="margin-top:12px">Le statut public n'est indiqué comme « établi » que lorsqu'il est confirmé par une source. Les pièces d'eau privées sont seulement comptées : aucune n'est décrite individuellement.</p>
+    </section>
+
+    <section class="card"><h2>Points d'attention</h2>
+      ${(c.points_attention||[]).length ? `<p>Ces pièces d'eau d'accès ou de gestion publics présentent, sur les images aériennes, une couverture végétale flottante qui pourrait mériter une observation complémentaire.</p>
+        <table><thead><tr><th>Lieu</th><th>Surface</th><th>Observation</th></tr></thead><tbody>${c.points_attention.map(p => `<tr><td>${esc(p.lieu)}${p.localite && p.localite !== p.lieu ? `<div class="small muted">${esc(p.localite)}</div>` : ""}</td><td>≈ ${fmt(p.surface_m2)} m²</td><td>${esc(p.observation)}</td></tr>`).join("")}</tbody></table>
+        <p class="small muted">Observation à distance : elle doit être confirmée sur place.</p>`
+      : `<p>Aucune situation particulière n'a été retenue à ce stade. Ce rapport constitue un <b>état de référence</b> qui permettra de suivre l'évolution de ces ressources dans le temps.</p>`}
+    </section>
+
+    ${(c.references||[]).length ? `<section class="card"><h2>Contexte</h2>${c.references.map(r => `<p>${esc(r.formulation.charAt(0).toUpperCase() + r.formulation.slice(1))}. <span class="small muted">(<a href="${esc(r.url)}" target="_blank" rel="noopener">source</a>${r.date_publication ? ", " + dateFr(r.date_publication) : ""})</span></p>`).join("")}
+      <p>Dans un contexte d'augmentation des températures, de sécheresses plus marquées et de fortes pluies, les mares, étangs, zones humides et bassins de rétention jouent un rôle croissant pour la biodiversité, la gestion de l'eau et la résilience du territoire.</p></section>` : ""}
+
+    ${(c.engagements||[]).length ? `<section class="card"><h2>Engagements de la commune</h2><p class="small muted">Politiques publiques communales en lien avec l'eau, le climat ou la biodiversité, relevées sur des sources publiques :</p>
+      <ul>${c.engagements.map(e => `<li>${esc(e.theme)} — <a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.titre)}</a>${e.date_document ? ` <span class="small muted">(${esc(e.date_document)})</span>` : ""}</li>`).join("")}</ul></section>` : ""}
+
+    <section class="card"><h2>Méthode et limites</h2>
+      <p>Les pièces d'eau sont issues du référentiel cartographique du Service public de Wallonie. Leur aspect est lu sur les orthophotos successives du SPW (images aériennes datées), en tenant compte de la saison de chaque prise de vue. Le statut public ou privé provient des couches officielles de propriété ; il n'est considéré comme établi qu'après confirmation.</p>
+      <p>Ce rapport constitue une première lecture cartographique du territoire. Il ne remplace pas une observation de terrain ni, lorsque nécessaire, une analyse de l'eau.</p>
+      ${c.mentions && c.mentions.supervision ? `<p>${esc(c.mentions.supervision)}</p>` : ""}
+      ${c.mentions && c.mentions.avertissement ? `<p><b>${esc(c.mentions.avertissement)}</b></p>` : ""}
+    </section>
+
+    <section class="card noprint"><h2>Un échange ?</h2>
+      <p>Si certaines observations retiennent votre attention, nous pouvons vous présenter notre méthode et examiner avec vous les pièces d'eau concernées. Cette première rencontre est gratuite et sans engagement.</p>
+      <p><a class="btn" href="${esc((c.signature && c.signature.site) || "https://www.aquiklin.be")}" target="_blank" rel="noopener">Contacter Aquiklin</a> <button class="btn" style="border:0;cursor:pointer;background:var(--soft);color:var(--ink2)" onclick="window.print()">Imprimer / PDF</button></p>
+    </section>`;
+  document.getElementById("foot").innerHTML = `${esc((c.signature && c.signature.nom) || "")} · ${esc((c.signature && c.signature.organisation) || "Aquiklin")} · Données : © Service public de Wallonie (WalOnMap).`;
+}
+
+(async () => {
+  const jeton = location.hash.replace(/^#/, "");
+  if(jeton === "apercu"){
+    try{ const a = JSON.parse(localStorage.getItem("oc-apercu-rapport") || "null"); if(a) return render(a.titre, a.version, a.publie_le, a.contenu, true); }catch(e){}
+    app.innerHTML = `<div class="card">Aucun aperçu disponible.</div>`; return;
+  }
+  if(!/^[A-Za-z0-9_-]{40,100}$/.test(jeton)){ app.innerHTML = `<div class="card"><h2>Lien incomplet</h2><p>Ce lien ne permet pas d'afficher un rapport. Vérifiez qu'il a été copié en entier.</p></div>`; return; }
+  try{
+    const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: false } });
+    const { data, error } = await sb.rpc("oc_portail", { p_jeton: jeton });
+    if(error) throw error;
+    if(!data || !data.ok){ app.innerHTML = `<div class="card"><h2>Rapport indisponible</h2><p>${esc((data && data.motif) || "Lien invalide")}. Pour obtenir un nouveau lien, répondez simplement au courriel reçu.</p></div>`; return; }
+    render(data.rapport.titre, data.rapport.version, data.rapport.publie_le, data.rapport.contenu, false);
+  }catch(e){ app.innerHTML = `<div class="card"><h2>Rapport momentanément indisponible</h2><p>Merci de réessayer dans quelques instants.</p></div>`; }
+})();
+</script>
+</body>
+</html>
