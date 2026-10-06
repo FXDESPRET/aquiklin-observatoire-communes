@@ -21,7 +21,7 @@ window.OC_CONFIG = {
   SB_URL: "https://dnunawdqljlvkhwvwxxa.supabase.co",
   SB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ",   // clé publique « anon » (la même que dans l'Observatoire)
   AUTH_STORAGE_KEY: "aquiklin-oc-auth",       // distinct de l'Observatoire actuel
-  VERSION: "0.4.1 – pilote"
+  VERSION: "0.4.2 – pilote"
 };
 </script>
 <style>
@@ -368,7 +368,8 @@ async function ongletContacts(){
     <p class="muted small">Un courriel ne peut être validé que pour un contact <b>vérifié</b> (source et date), avec une adresse e-mail et sans opposition. L'appartenance politique n'intervient dans aucun calcul.</p>
     <div class="tbl-wrap"><table><thead><tr><th>Nom</th><th>Fonction</th><th>Attributions</th><th>E-mail</th><th>Vérifié</th><th></th></tr></thead><tbody>
     ${ks.map(k => `<tr><td><b>${esc(k.nom)}</b>${k.opposition_contact?' <span class="pill ko">opposition</span>':""}${!k.actif?' <span class="pill">inactif</span>':""}</td><td>${esc(k.fonction)}</td><td class="small">${esc(k.attributions||"")}</td>
-      <td>${esc(k.email||"—")}${k.email_source_url ? `<div class="small"><a href="${esc(k.email_source_url)}" target="_blank" rel="noopener">trouvée ici ↗</a></div>` : ""}</td><td>${k.verifie?`<span class="pill ok">oui · ${dateFr(k.verifie_le)}</span>`:'<span class="pill warn">à vérifier</span>'}</td><td><button data-k="${k.id}">Modifier</button></td></tr>`).join("")}
+      <td>${esc(k.email||"—")}${k.email_source_url ? `<div class="small"><a href="${esc(k.email_source_url)}" target="_blank" rel="noopener">trouvée ici ↗</a></div>` : ""}</td><td>${[["nom", k.verifie], ["genre", k.genre && k.genre_verifie], ["compétence", k.competence_courrier && k.competence_verifiee], ["e-mail", k.email && k.email_verifie]]
+        .map(([l, ok]) => `<span class="pill ${ok ? "ok" : "warn"}" style="margin:1px">${ok ? "✓" : "✗"} ${l}</span>`).join(" ")}</td><td><button data-k="${k.id}">Modifier</button></td></tr>`).join("")}
     </tbody></table></div></div>`;
   $("#kadd").onclick = () => editContact(null);
   $("#csave").onclick = async () => { const v = $("#csite").value.trim() || null;
@@ -435,6 +436,7 @@ function editContact(k){
   m.querySelector("#ksite").onclick = () => { if(!COM.site_web) return toast("Site officiel non renseigné (onglet Élus et contacts).", "ko"); m.querySelector("#keu").value = COM.site_web; majOpen(); };
   const choisir = e => { m.querySelector("#ke").value = e; m.querySelector("#kev").checked = false; };
   m.querySelector("#ke").addEventListener("input", () => { m.querySelector("#kev").checked = false; });
+  m.querySelectorAll('input[name="kg"]').forEach(r => r.addEventListener("change", () => { m.querySelector("#kgv").checked = true; }));
   m.querySelector("#kcp").onclick = () => { const c = competenceAuto(m.querySelector("#ka").value); if(!c) return toast("Aucune compétence reconnue dans les attributions : écrivez-la.", "ko");
     m.querySelector("#kc").value = c; m.querySelector("#kcv").checked = false; };
   m.querySelector("#kpaste").addEventListener("input", ev => {
@@ -599,9 +601,15 @@ async function ongletCourriels(){
   catch(e){ return toast(errMsg(e),"ko"); }
   const rap = reps[0];
   const echevins = ks.filter(k => k.fonction === "Échevin" && !k.opposition_contact).map(k => ({ ...k, sc: scoreCompetence(k) })).sort((a,b) => b.sc - a.sc);
-  const bourg = ks.find(k => k.fonction === "Bourgmestre" && k.verifie && k.email_verifie && k.email);
+  const bourgK = ks.find(k => k.fonction === "Bourgmestre" && !k.opposition_contact);
+  const bourg = bourgK && bourgK.verifie && bourgK.email_verifie && bourgK.email ? bourgK : null;
+  const bourgManque = bourgK ? [!bourgK.verifie && "cocher « Nom et fonction vérifiés »", !bourgK.email ? "indiquer l'e-mail" : !bourgK.email_verifie && "cocher « E-mail vérifié »"].filter(Boolean) : ["aucun bourgmestre enregistré"];
   const pret = k => k.verifie && k.genre && k.genre_verifie && k.competence_courrier && k.competence_verifiee && k.email && k.email_verifie;
-  const manque = k => [!k.verifie && "nom/fonction", !(k.genre && k.genre_verifie) && "genre", !(k.competence_courrier && k.competence_verifiee) && "compétence", !(k.email && k.email_verifie) && "e-mail"].filter(Boolean);
+  const manque = k => [
+    !k.verifie && "cocher « Nom et fonction vérifiés »",
+    !k.genre ? "choisir Madame ou Monsieur" : !k.genre_verifie && "cocher « genre vérifié »",
+    !k.competence_courrier ? "écrire la compétence" : !k.competence_verifiee && "cocher « compétence vérifiée »",
+    !k.email ? "indiquer l'e-mail" : !k.email_verifie && "cocher « E-mail vérifié »"].filter(Boolean);
   $("#ocontent").innerHTML = `<div class="grid g2"><div>
     <div class="card"><h2>1 · Rapport communal</h2>
       ${rap ? `<p class="small"><span class="pill ok">version ${rap.version}</span> publiée le ${dateFr(rap.publie_le)} · ${rap.contenu.compteurs.detectes} pièces d'eau · ${rap.contenu.compteurs.points_attention} point(s) d'attention</p>` : `<p class="small"><span class="pill warn">aucun rapport</span> il sera généré automatiquement à la préparation du mail.</p>`}
@@ -611,7 +619,7 @@ async function ongletCourriels(){
       <label>À — échevin(e) le plus directement concerné(e) (proposition automatique)</label>
       <select id="mk">${echevins.map(k => `<option value="${k.id}">${esc(k.nom)} — ${esc(k.attributions||k.competence_courrier||"")}${pret(k) ? " ✓" : " (à compléter : " + manque(k).join(", ") + ")"}</option>`).join("") || "<option value=''>Aucun échevin enregistré</option>"}</select>
       <p class="small" id="mkinfo"></p>
-      <label class="row" style="color:var(--ink)"><input type="checkbox" id="mcc" style="width:auto" ${bourg ? "checked" : "disabled"}> Cc : ${bourg ? `${esc(bourg.nom)} (bourgmestre) &lt;${esc(bourg.email)}&gt;` : "bourgmestre — adresse non vérifiée (onglet Élus et contacts)"}</label>
+      <label class="row" style="color:var(--ink)"><input type="checkbox" id="mcc" style="width:auto" ${bourg ? "checked" : "disabled"}> Cc : ${bourg ? `${esc(bourg.nom)} (bourgmestre) &lt;${esc(bourg.email)}&gt;` : `bourgmestre${bourgK ? " " + esc(bourgK.nom) : ""} — à compléter : ${esc(bourgManque.join(", "))} (<a href="#/commune/${esc(COM.commune_ins)}/contacts">Élus et contacts</a>)`}</label>
       <div style="margin-top:10px"><button class="primary" id="mprep" ${echevins.length ? "" : "disabled"}>Préparer le mail</button></div>
       <p class="muted small">Le mail est préparé, jamais envoyé : vous le copiez dans votre messagerie.</p></div></div>
     <div class="card"><h2>Mails de la commune</h2>${ms.length ? `<table><tbody>${ms.map(m => `<tr class="click" data-m="${m.id}"><td>${esc(m.objet)}<div class="small muted">créé le ${dateFr(m.created_at)}${m.envoye_le?` · envoyé le ${dateFr(m.envoye_le)}`:""}</div></td><td>${statutPill(m.statut)}</td></tr>`).join("")}</tbody></table>` : `<p class="muted">Aucun mail.</p>`}
@@ -626,7 +634,7 @@ async function ongletCourriels(){
   document.querySelectorAll("[data-m]").forEach(tr => tr.onclick = () => location.hash = "#/courriel/" + tr.dataset.m);
   $("#mprep").onclick = async () => {
     const k = echevins.find(x => x.id === $("#mk").value); if(!k) return;
-    if(!(k.genre && k.competence_courrier)) return toast("Indiquez d'abord le genre et la compétence de ce contact (onglet Élus et contacts).", "ko");
+    if(!(k.genre && k.competence_courrier)) return toast("Pour " + k.nom + " : " + manque(k).join(", ") + " (onglet Élus et contacts, bouton Modifier).", "ko");
     const btn = $("#mprep"); btn.disabled = true;
     try{
       // rapport à jour (régénéré si les chiffres ont changé)
