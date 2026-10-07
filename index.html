@@ -21,7 +21,7 @@ window.OC_CONFIG = {
   SB_URL: "https://dnunawdqljlvkhwvwxxa.supabase.co",
   SB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ",   // clé publique « anon » (la même que dans l'Observatoire)
   AUTH_STORAGE_KEY: "aquiklin-oc-auth",       // distinct de l'Observatoire actuel
-  VERSION: "0.5 – pilote"
+  VERSION: "0.5.1 – pilote"
 };
 </script>
 <style>
@@ -526,11 +526,16 @@ function contourRapport(c){   // contour Lambert 72 simplifié (0,5 m) pour la s
 function boiteCarree(rings){ let x0=1e12,y0=1e12,x1=-1e12,y1=-1e12; for(const r of rings) for(const [x,y] of r){ x0=Math.min(x0,x); y0=Math.min(y0,y); x1=Math.max(x1,x); y1=Math.max(y1,y); }
   const pad = Math.max(12, Math.sqrt((x1-x0)*(y1-y0)) * 0.3), cx=(x0+x1)/2, cy=(y0+y1)/2, h=Math.max(x1-x0, y1-y0)/2 + pad; return [cx-h, cy-h, cx+h, cy+h].map(v => Math.round(v)); }
 
+// références validées, une seule par organisme (la mieux classée) : jamais deux chiffres contradictoires du même organisme
+async function refsValidees(){
+  const rs = await q(DB.from("oc_institutional_references").select("code,organisme,formulation,url,date_publication,ordre").eq("statut", "validée").order("ordre"));
+  const vus = new Set(); return rs.filter(r => { const o = (r.organisme||"").trim().toLowerCase(); if(vus.has(o)) return false; vus.add(o); return true; });
+}
 async function construireRapport(){   // instantané figé de ce que verra la commune (aucun propriétaire, aucune adresse privée)
   const prio = (await DB.rpc("oc_priorite_communes")).find(r => r.commune_ins === COM.commune_ins) || {};
   const sites = await DB.rpc("oc_sites_commune", { p_ins: COM.commune_ins });
   const [refs, engs, mentions] = await Promise.all([
-    q(DB.from("oc_institutional_references").select("code,organisme,formulation,url,date_publication,ordre").eq("statut", "validée").order("ordre")),
+    refsValidees(),
     q(DB.from("oc_commune_engagements").select("theme,titre,url,date_document").eq("commune_ins", COM.commune_ins).order("theme")),
     params("mention_expert_rapport") ]);
   const techniques = sites.filter(s => categorieRapport(s) === "technique").length;
@@ -646,7 +651,7 @@ async function ongletCourriels(){
     !k.email ? "indiquer l'e-mail" : !k.email_verifie && "cocher « E-mail vérifié »"].filter(Boolean);
   $("#ocontent").innerHTML = `<div class="grid g2"><div>
     <div class="card"><h2>1 · Rapport communal</h2>
-      ${rap ? `<p class="small"><span class="pill ok">version ${rap.version}</span> publiée le ${dateFr(rap.publie_le)} · ${rap.contenu.compteurs.detectes} pièces d'eau · ${rap.contenu.compteurs.points_attention} point(s) d'attention</p>` : `<p class="small"><span class="pill warn">aucun rapport</span> il sera généré automatiquement à la préparation du mail.</p>`}
+      ${rap ? `<p class="small"><span class="pill ok">version ${rap.version}</span> publiée le ${dateFr(rap.publie_le)}${rap.contenu.carte ? "" : ` <span class="pill warn">ancienne présentation, sans carte : générez une nouvelle version</span>`} · ${rap.contenu.compteurs.detectes} pièces d'eau · ${rap.contenu.compteurs.points_attention} point(s) d'attention</p>` : `<p class="small"><span class="pill warn">aucun rapport</span> il sera généré automatiquement à la préparation du mail.</p>`}
       <div class="row"><button id="rgen">Générer une nouvelle version</button><button id="rprev">Aperçu du rapport ↗</button></div>
       <p class="muted small">Le rapport ne montre que des chiffres, les sites publics vérifiés et des informations institutionnelles : aucun propriétaire privé.</p></div>
     <div class="card"><h2>2 · Préparer le mail</h2>
@@ -662,8 +667,8 @@ async function ongletCourriels(){
     $("#mkinfo").innerHTML = pret(k) ? `<span class="pill ok">toutes les données sont vérifiées</span>` : `<span class="pill ko">à compléter : ${manque(k).join(", ")}</span> — <a href="#/commune/${esc(COM.commune_ins)}/contacts">Élus et contacts</a>`; };
   if(echevins.length){ $("#mk").onchange = info; info(); }
   $("#rgen").onclick = async () => { try{ const r = await publierRapport(); toast(`Rapport version ${r.version} publié`, "ok"); ongletCourriels(); }catch(e){ toast(errMsg(e), "ko"); } };
-  $("#rprev").onclick = async () => { try{ const contenu = rap ? rap.contenu : await construireRapport();
-      try{ localStorage.setItem("oc-apercu-rapport", JSON.stringify({ titre: `Ressources aquatiques du territoire de ${COM.nom}`, version: rap ? rap.version : 0, publie_le: rap ? rap.publie_le : null, contenu })); }catch(e){}
+  $("#rprev").onclick = async () => { try{ const contenu = await construireRapport();   // toujours à jour : montre ce que contiendra la prochaine version
+      try{ localStorage.setItem("oc-apercu-rapport", JSON.stringify({ titre: `Ressources aquatiques du territoire de ${COM.nom}`, version: rap ? rap.version + 1 : 1, publie_le: null, contenu })); }catch(e){}
       window.open("/rapport#apercu", "_blank"); }catch(e){ toast(errMsg(e), "ko"); } };
   document.querySelectorAll("[data-m]").forEach(tr => tr.onclick = () => location.hash = "#/courriel/" + tr.dataset.m);
   $("#mprep").onclick = async () => {
@@ -675,7 +680,9 @@ async function ongletCourriels(){
       const prio = (await DB.rpc("oc_priorite_communes")).find(r => r.commune_ins === COM.commune_ins) || {};
       let r = rap;
       const actuel = { detectes: prio.detectes, publics_etablis: prio.public_etabli, points_attention: SITES.filter(s => estPublic(s) && estLentilles(s)).length };
-      if(!r || !memesChiffres(r.contenu.compteurs, actuel)) r = await publierRapport();
+      const codesActuels = (await refsValidees()).map(x => x.code).join("|");
+      const codesRapport = r ? (r.contenu.references||[]).map(x => x.code).join("|") : null;
+      if(!r || !memesChiffres(r.contenu.compteurs, actuel) || codesRapport !== codesActuels || !r.contenu.carte) r = await publierRapport();
       const lien = await creerLien(r.id, k.id);
       const signature = ((await params("signature_courriel")).texte) || "François-Xavier Despret\nAquiklin";
       const mail = redigerMail(k, r.contenu, r, lien, signature);
@@ -746,16 +753,18 @@ async function viewCourriel(id){
 
 /* ---- références institutionnelles ---- */
 async function viewReferences(){
-  $("#app").innerHTML = `<h1>Références institutionnelles</h1><p class="muted">Chiffres officiels cités dans les mails et les rapports. Seules les références <b>validées</b> sont utilisées ; une nouvelle valeur validée remplace l'ancienne dans les mails suivants.</p><div class="card"><p class="muted">Chargement…</p></div>`;
+  $("#app").innerHTML = `<h1>Références institutionnelles</h1><p class="muted">Chiffres officiels cités dans les mails et les rapports. Seules les références <b>validées</b> sont utilisées ; un seul chiffre par organisme est cité (le premier de la liste) ; une nouvelle valeur validée remplace l'ancienne dans les mails suivants (le rapport est régénéré automatiquement).</p><div class="card"><p class="muted">Chargement…</p></div>`;
   let rs; try{ rs = await q(DB.from("oc_institutional_references").select("*").not("code","is",null).order("ordre")); }catch(e){ $("#app .card").innerHTML = esc(errMsg(e)); return; }
+  const citees = new Set(); { const vus = new Set(); rs.filter(r => r.statut === "validée").forEach(r => { const o = (r.organisme||"").trim().toLowerCase(); if(!vus.has(o)){ vus.add(o); citees.add(r.id); } }); }
   $("#app .card").innerHTML = rs.map(r => `<div class="site" style="cursor:default"><div class="row"><b>${esc(r.organisme)}</b> — ${esc(r.titre)}<span style="flex:1"></span>
-      <span class="pill ${r.statut==="validée"?"ok":r.statut==="obsolète"?"":"warn"}">${esc(r.statut)}</span></div>
+      <span class="pill ${r.statut==="validée"?"ok":r.statut==="obsolète"?"":"warn"}">${esc(r.statut)}</span>${r.statut==="validée" ? (citees.has(r.id) ? ` <span class="pill ok">cité dans les mails</span>` : ` <span class="pill warn">non cité : un autre chiffre du même organisme est prioritaire</span>`) : ""}</div>
       <p style="margin:6px 0">« ${esc(r.formulation||"")} »</p>
       <div class="small muted">Chiffre : ${fmt(r.chiffre,1)} ${esc(r.unite||"")} · publié le ${dateFr(r.date_publication)} · vérifié le ${dateFr(r.verifie_le)} (${esc(r.verifie_par||"")}) · <a href="${esc(r.url)}" target="_blank" rel="noopener">source ↗</a></div>
       ${r.resume ? `<div class="small muted">${esc(r.resume)}</div>` : ""}
-      <div class="row" style="margin-top:6px"><button data-ed="${r.id}">Modifier</button>${r.statut !== "validée" ? `<button class="primary" data-val="${r.id}">J'ai vérifié la source : valider</button>` : ""}${r.statut !== "obsolète" ? `<button data-obs="${r.id}">Marquer obsolète</button>` : ""}</div></div>`).join("");
+      <div class="row" style="margin-top:6px"><button data-ed="${r.id}">Modifier</button>${r.statut === "à valider" ? `<button class="primary" data-val="${r.id}">J'ai vérifié la source : valider</button>` : r.statut === "obsolète" ? `<button data-rea="${r.id}">Réactiver (repasse « à valider »)</button>` : ""}${r.statut !== "obsolète" ? `<button data-obs="${r.id}">Marquer obsolète</button>` : ""}</div></div>`).join("");
   const upd = async (id, patch, msg) => { try{ await q(DB.from("oc_institutional_references").update(patch).eq("id", id)); toast(msg, "ok"); viewReferences(); }catch(e){ toast(errMsg(e), "ko"); } };
   document.querySelectorAll("[data-val]").forEach(b => b.onclick = () => upd(b.dataset.val, { statut: "validée", verifie_le: today(), verifie_par: USER.email }, "Référence validée"));
+  document.querySelectorAll("[data-rea]").forEach(b => b.onclick = () => { if(confirm("Ce chiffre a été marqué obsolète (remplacé par un chiffre plus récent). Le réactiver quand même ?")) upd(b.dataset.rea, { statut: "à valider" }, "Référence repassée « à valider »"); });
   document.querySelectorAll("[data-obs]").forEach(b => b.onclick = () => upd(b.dataset.obs, { statut: "obsolète" }, "Référence marquée obsolète"));
   document.querySelectorAll("[data-ed]").forEach(b => b.onclick = () => { const r = rs.find(x => x.id === b.dataset.ed);
     const md = modal(`<h1>${esc(r.organisme)}</h1><label>Formulation (sans majuscule initiale : « selon … »)</label><textarea id="rf">${esc(r.formulation||"")}</textarea>
