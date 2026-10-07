@@ -21,7 +21,7 @@ window.OC_CONFIG = {
   SB_URL: "https://dnunawdqljlvkhwvwxxa.supabase.co",
   SB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ",   // clé publique « anon » (la même que dans l'Observatoire)
   AUTH_STORAGE_KEY: "aquiklin-oc-auth",       // distinct de l'Observatoire actuel
-  VERSION: "0.6 – pilote"
+  VERSION: "0.6.1 – pilote"
 };
 </script>
 <style>
@@ -635,21 +635,23 @@ function redigerMail(k, c, rapport, lien, signature){
   const refs = rapport.contenu.references || [];
   const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
   const parRefs = refs.map((r, i) => i === 0 ? `Saviez-vous que, ${r.formulation} ?` : cap(r.formulation) + ".");
-  let constat = `Notre analyse cartographique a identifié ${nb.texte} sur le territoire de ${commune}`;
+  let constat = `Sur cette base, notre analyse cartographique a identifié ${nb.texte} sur le territoire de ${commune}`;
   if(cp.publics_etablis >= 3){ const p = formuleNombre(cp.publics_etablis, false); constat += `, dont ${p.texte} relevant du domaine public ou d'un gestionnaire public`; }
   constat += ".";
   const attention = cp.points_attention >= 2 ? `Plusieurs pièces d'eau présentent par ailleurs des évolutions ou couvertures végétales qui pourraient mériter une observation complémentaire.`
     : cp.points_attention === 1 ? `Une pièce d'eau présente par ailleurs une couverture végétale qui pourrait mériter une observation complémentaire.` : null;
-  const objet = nb.objet ? `${commune} – ${nb.objet}` : cp.points_attention >= 1 ? `${commune} – votre rapport sur les pièces d'eau` : `${commune} – état des ressources aquatiques du territoire`;
+  // objet sobre et descriptif (pas de « votre rapport », « découvrez », « gratuit ») ; chiffre seulement à partir de 10
+  const nObj = cp.detectes >= 20 ? (Math.floor(cp.detectes/10)*10 < cp.detectes ? "plus de " : "") + Math.floor(cp.detectes/10)*10 : cp.detectes >= 10 ? "plus de 10" : null;
+  const objet = nObj ? `${commune} – état des lieux cartographique de ${nObj} plans d'eau` : `Plans d'eau de ${commune} – premier état des lieux cartographique`;
   const corps = [
     `${civ} ${nomA},`,
     `En votre qualité ${F ? "d'échevine" : "d'échevin"} en charge ${k.competence_courrier}, nous souhaitions attirer votre attention sur un enjeu qui prend une importance croissante pour les communes : la connaissance, le suivi et la préservation de leurs ressources aquatiques.`,
-    ...parRefs,
-    "Dans un contexte d'augmentation des températures, de périodes de sécheresse plus marquées et d'épisodes de fortes pluies, les mares, étangs, zones humides, bassins de rétention et autres ressources aquatiques jouent un rôle de plus en plus important pour la biodiversité, la gestion de l'eau et la résilience du territoire.",
-    "La Région wallonne met aujourd'hui à disposition, notamment via son Géoportail et ses données aériennes, des outils particulièrement riches permettant de mieux connaître et suivre l'évolution du territoire.",
-    "Nous avons développé une méthode permettant d'exploiter ces données spécifiquement pour les ressources aquatiques et de les transformer en une lecture directement utile aux responsables communaux.",
+    "La Région wallonne met aujourd'hui à disposition, notamment via son Géoportail (WalOnMap) et ses images aériennes, des outils particulièrement riches permettant de mieux connaître et suivre l'évolution du territoire.",
+    `Nous avons développé une méthode permettant d'exploiter ces données publiques spécifiquement pour les ressources aquatiques et de les transformer en une lecture directement utile aux responsables communaux.`,
     constat,
     ...(attention ? [attention] : []),
+    ...parRefs,
+    "Dans un contexte d'augmentation des températures, de périodes de sécheresse plus marquées et d'épisodes de fortes pluies, les mares, étangs, zones humides, bassins de rétention et autres ressources aquatiques jouent un rôle de plus en plus important pour la biodiversité, la gestion de l'eau et la résilience du territoire.",
     "Nous avons préparé gratuitement pour votre commune un rapport de synthèse permettant de visualiser ces éléments, de distinguer les ressources publiques, privées et techniques et d'identifier les situations qui pourraient mériter une attention particulière.",
     "Ce rapport permet également de disposer d'un premier état de référence qui pourra servir à suivre l'évolution de ces ressources dans le temps.",
     `Vous pouvez consulter directement le rapport de ${commune} ici :`,
