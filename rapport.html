@@ -52,7 +52,18 @@ footer{max-width:900px;margin:0 auto;padding:0 16px 40px;color:var(--muted);font
 .vig svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .vig span{position:absolute;left:4px;bottom:4px;background:rgba(0,0,0,.65);color:#fff;font-size:11px;padding:1px 6px;border-radius:4px}
 .tw{overflow-x:auto}
-@media print{#carte{height:420px}header,.noprint{display:none} body{background:#fff} .card{box-shadow:none}}
+.contact{border-color:var(--accent);background:var(--soft)}
+.contact .acts{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+.contact .who{line-height:1.5}
+.btn.big{font-size:17px;padding:13px 20px}
+.btn.alt{background:var(--panel);color:var(--accent);border:2px solid var(--accent)}
+.fab{position:fixed;right:16px;bottom:16px;z-index:1000;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:calc(100% - 32px)}
+.fab a{box-shadow:0 4px 16px rgba(0,0,0,.25)}
+.mobile-only{display:none}
+@media (max-width:700px), (pointer:coarse){ .mobile-only{display:inline-block} }
+@media (max-width:480px){ .fab{left:16px;right:16px;justify-content:stretch} .fab a{flex:1;text-align:center} }
+main{padding-bottom:96px}
+@media print{#carte{height:420px}header,.noprint,.fab{display:none} body{background:#fff} .card{box-shadow:none}}
 </style>
 </head>
 <body>
@@ -132,17 +143,50 @@ function render(titre, version, publie_le, c, apercu){
 
     <section class="card"><h2>Méthode et limites</h2>
       <p>Les pièces d'eau sont issues du référentiel cartographique du Service public de Wallonie. Leur aspect est lu sur les orthophotos successives du SPW (images aériennes datées), en tenant compte de la saison de chaque prise de vue. Le statut public ou privé provient des couches officielles de propriété ; il n'est considéré comme établi qu'après confirmation.</p>
-      <p>Ce rapport constitue une première lecture cartographique du territoire. Il ne remplace pas une observation de terrain ni, lorsque nécessaire, une analyse de l'eau.</p>
+      <p>Ce rapport constitue une première lecture cartographique du territoire. Il ne remplace pas une observation de terrain ni, lorsque cela s’avère nécessaire, une analyse de l’eau.</p>
+      <p>${esc((c.mentions && c.mentions.sources) || "Les images aériennes et données cartographiques utilisées sont des données publiques mises à disposition par le Service public de Wallonie (Géoportail de la Wallonie). Leur analyse et leur interprétation sont réalisées par Aquiklin, sous sa seule responsabilité : ce rapport n’est ni produit, ni validé par la Région wallonne et ne constitue pas un contrôle officiel.")}</p>
       ${c.mentions && c.mentions.supervision ? `<p>${esc(c.mentions.supervision)}</p>` : ""}
       ${c.mentions && c.mentions.avertissement ? `<p><b>${esc(c.mentions.avertissement)}</b></p>` : ""}
     </section>
 
-    <section class="card noprint"><h2>Un échange ?</h2>
-      <p>Si certaines observations retiennent votre attention, nous pouvons vous présenter notre méthode et examiner avec vous les pièces d'eau concernées. Cette première rencontre est gratuite et sans engagement.</p>
-      <p><a class="btn" href="${esc((c.signature && c.signature.site) || "https://www.aquiklin.be")}" target="_blank" rel="noopener">Contacter Aquiklin</a> <button class="btn" style="border:0;cursor:pointer;background:var(--soft);color:var(--ink2)" onclick="window.print()">Imprimer / PDF</button></p>
-    </section>`;
+    ${blocContact(c)}`;
   initCarte(c);
-  document.getElementById("foot").innerHTML = `${esc((c.signature && c.signature.nom) || "")} · ${esc((c.signature && c.signature.organisation) || "Aquiklin")} · Données : © Service public de Wallonie (WalOnMap).`;
+  boutonFlottant(c);
+  document.getElementById("foot").innerHTML = `${esc((c.signature && c.signature.nom) || "")} · ${esc((c.signature && c.signature.organisation) || "Aquiklin")} · Données publiques : © Service public de Wallonie (WalOnMap) · Analyse et interprétation : Aquiklin.`;
+}
+
+// ---- contact direct : mail prérempli (modifiable avant envoi), téléphone, appel sur mobile ----
+function mailtoContact(ct, commune){
+  return "mailto:" + encodeURIComponent(ct.email) + "?subject=" + encodeURIComponent(`Rapport Aquiklin – Commune de ${commune}`)
+    + "&body=" + encodeURIComponent(`Bonjour Monsieur Despret,\n\nJ'ai consulté le rapport relatif aux ressources aquatiques de ${commune} et souhaiterais échanger avec vous à ce sujet.\n\nBien cordialement,\n`);
+}
+const telHref = t => "tel:" + String(t || "").replace(/[^+\d]/g, "");
+function blocContact(c){
+  const ct = c.contact, commune = c.commune.nom;
+  if(!ct) return `<section class="card noprint" id="contact"><h2>Un échange ?</h2>
+      <p>Si certaines observations retiennent votre attention, nous pouvons vous présenter notre méthode et examiner avec vous les pièces d'eau concernées. Cette première rencontre est gratuite et sans engagement.</p>
+      <p><a class="btn" href="${esc((c.signature && c.signature.site) || "https://www.aquiklin.be")}" target="_blank" rel="noopener">Contacter Aquiklin</a></p></section>`;
+  return `<section class="card contact" id="contact"><h2>Échanger avec nous sur ce rapport</h2>
+      <p>Si certaines observations retiennent votre attention, nous serions heureux de vous présenter la méthode utilisée, de parcourir avec vous les résultats concernant ${esc(commune)} et d'examiner les pistes permettant de mieux connaître, préserver ou améliorer durablement la gestion de certaines pièces d'eau. Cette présentation et cette première rencontre sont proposées <b>gratuitement et sans engagement</b>.</p>
+      <div class="acts noprint">
+        ${ct.email ? `<a class="btn big" href="${esc(mailtoContact(ct, commune))}">Échanger avec nous sur ce rapport</a>` : ""}
+        ${ct.telephone ? `<a class="btn big alt mobile-only" href="${esc(telHref(ct.telephone))}">Appeler ${esc(ct.nom)}</a>` : ""}
+      </div>
+      ${ct.email ? `<p class="small muted noprint">Le bouton ouvre votre messagerie avec un message déjà rédigé, que vous pouvez modifier avant de l'envoyer.</p>` : ""}
+      <p class="who"><b>${esc(ct.nom)}</b><br>${esc(ct.organisation || "Aquiklin")}
+        ${ct.telephone ? `<br><a href="${esc(telHref(ct.telephone))}">${esc(ct.telephone)}</a>` : ""}
+        ${ct.email ? `<br><a href="mailto:${esc(ct.email)}">${esc(ct.email)}</a>` : ""}
+        ${ct.site ? `<br><a href="${esc(ct.site)}" target="_blank" rel="noopener">${esc(ct.site.replace(/^https?:\/\//, ""))}</a>` : ""}</p>
+      <p class="noprint"><button class="btn alt" style="cursor:pointer" onclick="window.print()">Imprimer / enregistrer en PDF</button></p>
+    </section>`;
+}
+function boutonFlottant(c){
+  const ct = c.contact; if(!ct || (!ct.email && !ct.telephone)) return;
+  const old = document.querySelector(".fab"); if(old) old.remove();
+  const d = document.createElement("div"); d.className = "fab";
+  d.innerHTML = (ct.email ? `<a class="btn" href="${esc(mailtoContact(ct, c.commune.nom))}">Échanger avec nous</a>` : `<a class="btn" href="#contact">Nous contacter</a>`)
+    + (ct.telephone ? `<a class="btn alt mobile-only" href="${esc(telHref(ct.telephone))}">Appeler</a>` : "");
+  document.body.appendChild(d);
 }
 
 (async () => {
