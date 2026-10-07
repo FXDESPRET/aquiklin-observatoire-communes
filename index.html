@@ -21,7 +21,7 @@ window.OC_CONFIG = {
   SB_URL: "https://dnunawdqljlvkhwvwxxa.supabase.co",
   SB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ",   // clé publique « anon » (la même que dans l'Observatoire)
   AUTH_STORAGE_KEY: "aquiklin-oc-auth",       // distinct de l'Observatoire actuel
-  VERSION: "0.4.2 – pilote"
+  VERSION: "0.5 – pilote"
 };
 </script>
 <style>
@@ -511,22 +511,56 @@ const estLentilles = s => ["lentilles probables","lentilles confirmées terrain"
 const estTechnique = s => ["station d'épuration","bassin technique / lagunage"].includes(s.verification_visuelle);
 async function params(cle){ const r = await q(DB.from("oc_parametres").select("valeur").eq("cle", cle)); return (r[0]||{}).valeur || {}; }
 
-async function construireRapport(){   // instantané figé de ce que verra la commune (aucune donnée privée nominative)
+const CAMPAGNES_RAPPORT = ["2006_2007", "2012_2013", "2018", "2021", "2023_ETE", "2025_ETE", "2026_PRINTEMPS"];   // orthophotos SPW montrées dans le rapport
+function categorieRapport(s){
+  if(estTechnique(s) || s.categorie === "non_pertinent") return "technique";
+  if(s.categorie === "public_etabli") return "public_etabli";
+  if(s.categorie === "probablement_public") return "public_probable";
+  if(s.categorie === "prive") return "prive";
+  return "a_confirmer";
+}
+function contourRapport(c){   // contour Lambert 72 simplifié (0,5 m) pour la superposition sur les images
+  if(!Array.isArray(c)) return null;
+  return c.slice(0, 3).map(r => r.filter((_, i) => r.length < 120 || i % Math.ceil(r.length / 120) === 0).map(([x, y]) => [Math.round(x*2)/2, Math.round(y*2)/2]));
+}
+function boiteCarree(rings){ let x0=1e12,y0=1e12,x1=-1e12,y1=-1e12; for(const r of rings) for(const [x,y] of r){ x0=Math.min(x0,x); y0=Math.min(y0,y); x1=Math.max(x1,x); y1=Math.max(y1,y); }
+  const pad = Math.max(12, Math.sqrt((x1-x0)*(y1-y0)) * 0.3), cx=(x0+x1)/2, cy=(y0+y1)/2, h=Math.max(x1-x0, y1-y0)/2 + pad; return [cx-h, cy-h, cx+h, cy+h].map(v => Math.round(v)); }
+
+async function construireRapport(){   // instantané figé de ce que verra la commune (aucun propriétaire, aucune adresse privée)
   const prio = (await DB.rpc("oc_priorite_communes")).find(r => r.commune_ins === COM.commune_ins) || {};
   const sites = await DB.rpc("oc_sites_commune", { p_ins: COM.commune_ins });
   const [refs, engs, mentions] = await Promise.all([
     q(DB.from("oc_institutional_references").select("code,organisme,formulation,url,date_publication,ordre").eq("statut", "validée").order("ordre")),
     q(DB.from("oc_commune_engagements").select("theme,titre,url,date_document").eq("commune_ins", COM.commune_ins).order("theme")),
     params("mention_expert_rapport") ]);
-  const techniques = sites.filter(estTechnique).length;
-  const points = sites.filter(s => estPublic(s) && estLentilles(s)).sort((a,b) => (b.surface_m2||0) - (a.surface_m2||0));
+  const techniques = sites.filter(s => categorieRapport(s) === "technique").length;
+  const points = sites.filter(s => estPublic(s) && estLentilles(s));
+  // numérotation : sites publics (établis puis probables) puis techniques puis à confirmer, du plus grand au plus petit ; les privés ne sont pas numérotés
+  const ordreCat = { public_etabli: 1, public_probable: 2, technique: 3, a_confirmer: 4 };
+  const numerotes = sites.filter(s => s.lat != null && categorieRapport(s) !== "prive")
+    .sort((a, b) => (ordreCat[categorieRapport(a)] - ordreCat[categorieRapport(b)]) || (b.surface_m2||0) - (a.surface_m2||0));
+  const num = new Map(numerotes.map((s, i) => [s.obs_plan_eau_id, i + 1]));
+  const lieu = s => s.rue || s.localite || COM.nom;
+  const observation = s => estLentilles(s) ? "Couverture végétale flottante visible sur les images aériennes" + (s.vu_en_ete ? " d'été" : "") + " — à confirmer sur place"
+    : s.verification_visuelle === "station d'épuration" ? "Station d'épuration (ouvrage de traitement)"
+    : s.verification_visuelle === "bassin technique / lagunage" ? "Bassin technique / lagunage"
+    : s.verification_visuelle === "asséché ou comblé" ? "Pièce d'eau asséchée ou comblée sur les images récentes"
+    : s.verification_visuelle === "eau libre" ? "Eau libre sur les images récentes" : "";
+  const STATUT = { public_etabli: "Public (établi)", public_probable: "Public probable (à confirmer)", technique: "Infrastructure technique", a_confirmer: "Statut à confirmer" };
+  // images : points d'attention d'abord, puis les plus grandes pièces d'eau publiques (12 au maximum)
+  const pourImages = [...points, ...numerotes.filter(s => estPublic(s) && !points.includes(s))].filter(s => contourRapport(s.contour)).slice(0, 12);
   return {
     commune: { nom: COM.nom, province: COM.province, ins: COM.commune_ins }, genere_le: new Date().toISOString(),
     compteurs: { detectes: prio.detectes||0, publics_etablis: prio.public_etabli||0, probablement_publics: prio.probablement_public||0,
       prives: Math.max(0, (prio.prive_non_pertinent||0) - techniques), techniques, a_confirmer: prio.a_verifier||0, points_attention: points.length },
-    points_attention: points.map(s => ({ lieu: s.rue || s.localite || COM.nom, localite: s.localite, surface_m2: Math.round((s.surface_m2||0)/10)*10,
-      observation: "Couverture végétale flottante visible sur les images aériennes" + (s.vu_en_ete ? " d'été" : "") + (s.image_ref ? ` (campagne ${String(s.image_ref).replace(/_/g," ").toLowerCase()})` : "") + ".",
-      lat: s.lat ? Math.round(s.lat*1e4)/1e4 : null, lon: s.lon ? Math.round(s.lon*1e4)/1e4 : null })),
+    carte: sites.filter(s => s.lat != null).map(s => ({ n: num.get(s.obs_plan_eau_id) || null, cat: categorieRapport(s), attention: points.includes(s),
+      lat: Math.round(s.lat*1e5)/1e5, lon: Math.round(s.lon*1e5)/1e5, surface_m2: Math.round((s.surface_m2||0)/10)*10 })),
+    liste: numerotes.map(s => ({ n: num.get(s.obs_plan_eau_id), lieu: lieu(s), localite: s.localite, surface_m2: Math.round((s.surface_m2||0)/10)*10,
+      statut: STATUT[categorieRapport(s)], gestionnaire: s.categorie === "public_etabli" ? (s.gestionnaire_nom || s.gestionnaire_type) : null,
+      observation: observation(s), attention: points.includes(s) })),
+    images: pourImages.map(s => { const rings = contourRapport(s.contour); return { n: num.get(s.obs_plan_eau_id), lieu: lieu(s), surface_m2: Math.round((s.surface_m2||0)/10)*10,
+      attention: points.includes(s), boite: boiteCarree(rings), contour: rings, campagnes: CAMPAGNES_RAPPORT }; }),
+    points_attention: points.map(s => ({ n: num.get(s.obs_plan_eau_id), lieu: lieu(s), localite: s.localite, surface_m2: Math.round((s.surface_m2||0)/10)*10, observation: observation(s) })),
     references: refs.map(r => ({ code: r.code, organisme: r.organisme, formulation: r.formulation, url: r.url, date_publication: r.date_publication })),
     engagements: engs, mentions,
     signature: { nom: "François-Xavier Despret", organisation: "Aquiklin", site: "https://www.aquiklin.be" }

@@ -6,6 +6,8 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 <title>Rapport communal · Ressources aquatiques</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
@@ -39,7 +41,18 @@ table{width:100%;border-collapse:collapse;font-size:15px} th,td{text-align:left;
 .leg{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted)} .leg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
 footer{max-width:900px;margin:0 auto;padding:0 16px 40px;color:var(--muted);font-size:13px}
 .btn{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600}
-@media print{header,.noprint{display:none} body{background:#fff} .card{box-shadow:none}}
+#carte{height:520px;border-radius:10px;border:1px solid var(--line);margin-top:10px}
+.lbl{background:#fff;border:2px solid #2e7d4f;border-radius:50%;width:24px;height:24px;line-height:20px;text-align:center;font:700 11px/20px system-ui,sans-serif;color:#1d3b2a;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.lbl.public_probable{border-color:#7fb38f}.lbl.technique{border-color:#2f80c9;color:#1b4a75}.lbl.a_confirmer{border-color:#a39d88;color:#555}.lbl.att{background:#ffd400;border-color:#a8321f;color:#000}
+.num{display:inline-block;min-width:24px;height:24px;border-radius:50%;text-align:center;line-height:20px;font-weight:700;font-size:12px;border:2px solid #2e7d4f;background:#fff;color:#1d3b2a}
+.num.public_probable{border-color:#7fb38f}.num.technique{border-color:#2f80c9}.num.a_confirmer{border-color:#a39d88}.num.att{background:#ffd400;border-color:#a8321f;color:#000}
+.strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:8px;margin-top:8px}
+.vig{position:relative;border-radius:8px;overflow:hidden;background:var(--soft);aspect-ratio:1/1}
+.vig img{width:100%;height:100%;object-fit:cover;display:block}
+.vig svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.vig span{position:absolute;left:4px;bottom:4px;background:rgba(0,0,0,.65);color:#fff;font-size:11px;padding:1px 6px;border-radius:4px}
+.tw{overflow-x:auto}
+@media print{#carte{height:420px}header,.noprint{display:none} body{background:#fff} .card{box-shadow:none}}
 </style>
 </head>
 <body>
@@ -56,6 +69,27 @@ const fmt = n => n == null ? "—" : Number(n).toLocaleString("fr-BE");
 const dateFr = d => d ? new Date(d).toLocaleDateString("fr-BE", { day:"numeric", month:"long", year:"numeric" }) : "";
 const app = document.getElementById("app");
 
+const GEO = "https://geoservices.wallonie.be/arcgis/rest/services/";
+const imgUrl = (svc, b) => `${GEO}IMAGERIE/ORTHO_${svc}/MapServer/export?bbox=${b.join(",")}&bboxSR=31370&imageSR=31370&size=300,300&format=jpg&transparent=false&f=image`;
+const lblCamp = k => String(k).replace("_PRINTEMPS", " printemps").replace("_ETE", " été").replace(/^(\d{4})_(\d{4})$/, "$1-$2");
+const catOf = statut => /établi/.test(statut) ? "" : /probable/.test(statut) ? "public_probable" : /technique/i.test(statut) ? "technique" : "a_confirmer";
+function svgContour(im){ const b = im.boite, w = b[2]-b[0];
+  return `<svg viewBox="0 0 100 100" preserveAspectRatio="none">${im.contour.map(r => `<polygon points="${r.map(([x,y]) => `${((x-b[0])/w*100).toFixed(1)},${((b[3]-y)/w*100).toFixed(1)}`).join(" ")}" fill="none" stroke="#ffd400" stroke-width=".8" stroke-dasharray="2 1.2"/>`).join("")}</svg>`; }
+function initCarte(c){
+  const el = document.getElementById("carte"); if(!el || !window.L) return;
+  const map = L.map(el, { scrollWheelZoom: false });
+  const ortho = L.tileLayer.wms("https://geoservices.wallonie.be/arcgis/services/IMAGERIE/ORTHO_LAST/MapServer/WMSServer", { layers: "0", format: "image/jpeg", maxZoom: 21, attribution: "© SPW – WalOnMap" });
+  const plan = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" });
+  plan.addTo(map); L.control.layers({ "Plan": plan, "Photo aérienne": ortho }).addTo(map);
+  const COL = { public_etabli: "#2e7d4f", public_probable: "#7fb38f", technique: "#2f80c9", a_confirmer: "#a39d88", prive: "#b9b29a" };
+  const pts = [];
+  c.carte.filter(p => p.cat === "prive").forEach(p => { L.circleMarker([p.lat, p.lon], { radius: 3.5, weight: 0, fillColor: COL.prive, fillOpacity: .85 }).bindTooltip("Pièce d'eau privée").addTo(map); pts.push([p.lat, p.lon]); });
+  c.carte.filter(p => p.cat !== "prive").sort((a,b) => (b.n||0) - (a.n||0)).forEach(p => {
+    const cls = p.attention ? "att" : p.cat;
+    L.marker([p.lat, p.lon], { icon: L.divIcon({ className: "", html: `<div class="lbl ${cls}">${p.n ?? ""}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }) })
+      .bindTooltip(`N° ${p.n} · ≈ ${fmt(p.surface_m2)} m²`).addTo(map); pts.push([p.lat, p.lon]); });
+  if(pts.length) map.fitBounds(pts, { padding: [24, 24], maxZoom: 16 });
+}
 function render(titre, version, publie_le, c, apercu){
   const k = c.compteurs || {}, total = Math.max(1, k.detectes || 0);
   const parts = [["Publics (établis)", k.publics_etablis, "#2e7d4f"], ["Publics probables (à confirmer)", k.probablement_publics, "#7fb38f"],
@@ -67,24 +101,28 @@ function render(titre, version, publie_le, c, apercu){
     <h1>${esc(titre || ("Ressources aquatiques du territoire de " + c.commune.nom))}</h1>
     <p class="muted">Première lecture cartographique des pièces d'eau présentes sur le territoire communal.</p>
 
-    <section class="card"><h2>Le patrimoine aquatique en chiffres</h2>
-      <div class="kpis">
-        <div class="kpi main"><b>${fmt(k.detectes)}</b><span>pièces d'eau identifiées sur le territoire</span></div>
-        <div class="kpi"><b>${fmt((k.publics_etablis||0) + (k.probablement_publics||0))}</b><span>relevant probablement d'un gestionnaire public, dont ${fmt(k.publics_etablis)} établie(s)</span></div>
-        <div class="kpi"><b>${fmt(k.techniques)}</b><span>infrastructures techniques (stations d'épuration, bassins techniques)</span></div>
-        <div class="kpi"><b>${fmt(k.points_attention)}</b><span>point(s) d'attention vérifié(s)</span></div>
-      </div>
+    <section class="card"><h2>Carte des pièces d'eau</h2>
+      <p class="small muted">${fmt(k.detectes)} pièces d'eau identifiées sur le territoire. Les pièces d'eau publiques, techniques et à confirmer sont numérotées et reprises dans la liste ci-dessous ; les pièces d'eau privées sont seulement figurées (points gris).</p>
+      ${(c.carte||[]).length ? `<div id="carte" role="img" aria-label="Carte des pièces d'eau de la commune"></div>` : `<p class="muted">Carte non disponible pour cette version du rapport.</p>`}
+      <div class="leg" style="margin-top:8px">${[["#2e7d4f","Public (établi)",k.publics_etablis],["#7fb38f","Public probable (à confirmer)",k.probablement_publics],["#2f80c9","Infrastructure technique",k.techniques],["#a39d88","Statut à confirmer",k.a_confirmer],["#b9b29a","Privé",k.prives]].map(([col,l,v]) => `<span><i style="background:${col}"></i>${esc(l)} : ${fmt(v||0)}</span>`).join("")}${k.points_attention ? `<span><i style="background:#ffd400;border:1px solid #a8321f"></i>Point d'attention : ${fmt(k.points_attention)}</span>` : ""}</div>
       <div class="bar" role="img" aria-label="Répartition des pièces d'eau par statut">${parts.map(([l,v,col]) => v ? `<i style="width:${v/total*100}%;background:${col}" title="${esc(l)} : ${v}"></i>` : "").join("")}</div>
-      <div class="leg">${parts.map(([l,v,col]) => `<span><i style="background:${col}"></i>${esc(l)} : ${fmt(v||0)}</span>`).join("")}</div>
-      <p class="small muted" style="margin-top:12px">Le statut public n'est indiqué comme « établi » que lorsqu'il est confirmé par une source. Les pièces d'eau privées sont seulement comptées : aucune n'est décrite individuellement.</p>
+      <p class="small muted">Le statut public n'est indiqué comme « établi » que lorsqu'il est confirmé par une source. Aucune information sur les propriétaires privés n'est reprise.</p>
     </section>
 
-    <section class="card"><h2>Points d'attention</h2>
-      ${(c.points_attention||[]).length ? `<p>Ces pièces d'eau d'accès ou de gestion publics présentent, sur les images aériennes, une couverture végétale flottante qui pourrait mériter une observation complémentaire.</p>
-        <table><thead><tr><th>Lieu</th><th>Surface</th><th>Observation</th></tr></thead><tbody>${c.points_attention.map(p => `<tr><td>${esc(p.lieu)}${p.localite && p.localite !== p.lieu ? `<div class="small muted">${esc(p.localite)}</div>` : ""}</td><td>≈ ${fmt(p.surface_m2)} m²</td><td>${esc(p.observation)}</td></tr>`).join("")}</tbody></table>
-        <p class="small muted">Observation à distance : elle doit être confirmée sur place.</p>`
-      : `<p>Aucune situation particulière n'a été retenue à ce stade. Ce rapport constitue un <b>état de référence</b> qui permettra de suivre l'évolution de ces ressources dans le temps.</p>`}
+    <section class="card"><h2>Liste des pièces d'eau publiques et techniques</h2>
+      ${(c.liste||[]).length ? `<div class="tw"><table><thead><tr><th>N°</th><th>Lieu</th><th>Surface</th><th>Statut</th><th>Observation</th></tr></thead><tbody>${c.liste.map(x => `<tr>
+          <td><span class="num ${x.attention ? "att" : esc(catOf(x.statut))}">${x.n}</span></td><td>${esc(x.lieu)}${x.localite && x.localite !== x.lieu ? `<div class="small muted">${esc(x.localite)}</div>` : ""}</td>
+          <td>≈ ${fmt(x.surface_m2)} m²</td><td>${esc(x.statut)}${x.gestionnaire ? `<div class="small muted">${esc(x.gestionnaire)}</div>` : ""}</td><td>${esc(x.observation || "—")}</td></tr>`).join("")}</tbody></table></div>`
+        : `<p class="muted">Aucune pièce d'eau publique ou technique identifiée à ce stade.</p>`}
+      ${(c.points_attention||[]).length ? `<p class="small">Les numéros sur fond jaune signalent une couverture végétale flottante visible sur les images aériennes, qui pourrait mériter une observation complémentaire.</p>`
+        : `<p class="small">Aucune situation particulière n'a été retenue à ce stade : ce rapport constitue un <b>état de référence</b> pour suivre l'évolution de ces ressources dans le temps.</p>`}
     </section>
+
+    ${(c.images||[]).length ? `<section class="card"><h2>Images aériennes dans le temps</h2>
+      <p class="small muted">Orthophotos du Service public de Wallonie, de la plus ancienne à la plus récente. Le contour de la pièce d'eau est tracé en jaune. L'aspect d'une image dépend de la saison de la prise de vue (printemps ou été).</p>
+      ${c.images.map(im => `<div style="margin-top:16px"><div class="row" style="display:flex;gap:8px;align-items:center"><span class="num ${im.attention ? "att" : ""}">${im.n}</span><b>${esc(im.lieu)}</b><span class="small muted">≈ ${fmt(im.surface_m2)} m²</span></div>
+        <div class="strip">${im.campagnes.map(cp => `<div class="vig"><img loading="lazy" alt="Orthophoto ${esc(lblCamp(cp))}" src="${imgUrl(cp, im.boite)}" onerror="this.parentNode.style.display='none'">${svgContour(im)}<span>${esc(lblCamp(cp))}</span></div>`).join("")}</div></div>`).join("")}
+      <p class="small muted" style="margin-top:10px">Images : © Service public de Wallonie (WalOnMap). Une image absente signifie que la campagne ne couvre pas ce lieu.</p></section>` : ""}
 
     ${(c.references||[]).length ? `<section class="card"><h2>Contexte</h2>${c.references.map(r => `<p>${esc(r.formulation.charAt(0).toUpperCase() + r.formulation.slice(1))}. <span class="small muted">(<a href="${esc(r.url)}" target="_blank" rel="noopener">source</a>${r.date_publication ? ", " + dateFr(r.date_publication) : ""})</span></p>`).join("")}
       <p>Dans un contexte d'augmentation des températures, de sécheresses plus marquées et de fortes pluies, les mares, étangs, zones humides et bassins de rétention jouent un rôle croissant pour la biodiversité, la gestion de l'eau et la résilience du territoire.</p></section>` : ""}
@@ -103,6 +141,7 @@ function render(titre, version, publie_le, c, apercu){
       <p>Si certaines observations retiennent votre attention, nous pouvons vous présenter notre méthode et examiner avec vous les pièces d'eau concernées. Cette première rencontre est gratuite et sans engagement.</p>
       <p><a class="btn" href="${esc((c.signature && c.signature.site) || "https://www.aquiklin.be")}" target="_blank" rel="noopener">Contacter Aquiklin</a> <button class="btn" style="border:0;cursor:pointer;background:var(--soft);color:var(--ink2)" onclick="window.print()">Imprimer / PDF</button></p>
     </section>`;
+  initCarte(c);
   document.getElementById("foot").innerHTML = `${esc((c.signature && c.signature.nom) || "")} · ${esc((c.signature && c.signature.organisation) || "Aquiklin")} · Données : © Service public de Wallonie (WalOnMap).`;
 }
 
