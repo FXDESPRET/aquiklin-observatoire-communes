@@ -79,7 +79,7 @@ function initCarte(c){
   const el = document.getElementById("carte"); if(!el || !window.L) return;
   const map = L.map(el, { scrollWheelZoom: false });
   const ortho = L.tileLayer.wms("https://geoservices.wallonie.be/arcgis/services/IMAGERIE/ORTHO_LAST/MapServer/WMSServer", { layers: "0", format: "image/jpeg", maxZoom: 21, attribution: "© SPW – WalOnMap" });
-  const plan = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" });
+  const plan = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap", referrerPolicy: "origin" });
   plan.addTo(map); L.control.layers({ "Plan": plan, "Photo aérienne": ortho }).addTo(map);
   const COL = { public_etabli: "#2e7d4f", public_probable: "#7fb38f", technique: "#2f80c9", a_confirmer: "#a39d88", prive: "#b9b29a" };
   const pts = [];

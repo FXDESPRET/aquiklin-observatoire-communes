@@ -324,7 +324,7 @@ function initMap(){
   MAP = L.map("map", { zoomControl: true });
   const wms = k => L.tileLayer.wms(`https://geoservices.wallonie.be/arcgis/services/IMAGERIE/ORTHO_${k}/MapServer/WMSServer`, { layers:"0", format:"image/jpeg", maxZoom:21, attribution:"© SPW – WalOnMap" });
   const bases = { "Orthophoto la plus récente": wms("LAST"), "Orthophoto 2023 été": wms("2023_ETE"), "Orthophoto 2024": wms("2024"), "Infrarouge récent": wms("LAST_IR"),
-    "Plan OpenStreetMap": L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom:19, attribution:"© OpenStreetMap" }) };
+    "Plan OpenStreetMap": L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom:19, attribution:"© OpenStreetMap", referrerPolicy:"origin" }) };
   bases["Orthophoto la plus récente"].addTo(MAP); L.control.layers(bases).addTo(MAP);
   MARKERS = {}; const pts = [];
   for(const s of SITES.filter(FILTRES[FILTRE][1])){ if(s.lat == null) continue;
