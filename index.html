@@ -21,7 +21,7 @@ window.OC_CONFIG = {
   SB_URL: "https://dnunawdqljlvkhwvwxxa.supabase.co",
   SB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ",   // clé publique « anon » (la même que dans l'Observatoire)
   AUTH_STORAGE_KEY: "aquiklin-oc-auth",       // distinct de l'Observatoire actuel
-  VERSION: "0.6.1 – pilote"
+  VERSION: "0.7 – pilote"
 };
 </script>
 <style>
@@ -626,6 +626,8 @@ function formuleNombre(n, mixte){
   if(n >= 1)  return { texte: "un ensemble de pièces d'eau et d'infrastructures aquatiques", objet: null };
   return null;
 }
+// Mail initial — version courte (≈ 190 mots) : l'essentiel et le bouton visibles sur le premier écran ;
+// le détail (méthode, contexte climatique, chiffre européen) est dans le rapport.
 function redigerMail(k, c, rapport, lien, signature){
   const F = k.genre === "F", civ = F ? "Madame" : "Monsieur", nomA = k.nom_appel || nomAppelAuto(k.nom);
   const cp = c.compteurs, commune = c.commune.nom;
@@ -633,47 +635,52 @@ function redigerMail(k, c, rapport, lien, signature){
   const nb = formuleNombre(cp.detectes, mixte);
   if(!nb) throw new Error("Aucune pièce d'eau détectée : pas de mail possible pour cette commune.");
   const refs = rapport.contenu.references || [];
-  const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
-  const parRefs = refs.map((r, i) => i === 0 ? `Saviez-vous que, ${r.formulation} ?` : cap(r.formulation) + ".");
-  let constat = `Sur cette base, notre analyse cartographique a identifié ${nb.texte} sur le territoire de ${commune}`;
-  if(cp.publics_etablis >= 3){ const p = formuleNombre(cp.publics_etablis, false); constat += `, dont ${p.texte} relevant du domaine public ou d'un gestionnaire public`; }
-  constat += ".";
-  const attention = cp.points_attention >= 2 ? `Plusieurs pièces d'eau présentent par ailleurs des évolutions ou couvertures végétales qui pourraient mériter une observation complémentaire.`
-    : cp.points_attention === 1 ? `Une pièce d'eau présente par ailleurs une couverture végétale qui pourrait mériter une observation complémentaire.` : null;
-  // objet sobre et descriptif (pas de « votre rapport », « découvrez », « gratuit ») ; chiffre seulement à partir de 10
+  const ref = refs[0];                       // un seul chiffre dans le mail (le mieux classé : SPW) ; les autres sont dans le rapport
+  let constat = `Notre analyse y a identifié ${nb.texte}`;
+  if(cp.publics_etablis >= 3) constat += `, dont ${formuleNombre(cp.publics_etablis, false).texte} relevant du domaine public ou d'un gestionnaire public`;
+  constat += ". Le rapport, préparé gratuitement pour votre commune, permet de les situer sur une carte, de distinguer les ressources publiques, privées et techniques, et de suivre leur évolution sur les images aériennes depuis 2006.";
+  if(cp.points_attention >= 2) constat += " Plusieurs pièces d'eau présentent une couverture végétale qui pourrait mériter une observation complémentaire.";
+  else if(cp.points_attention === 1) constat += " Une pièce d'eau présente une couverture végétale qui pourrait mériter une observation complémentaire.";
   const nObj = cp.detectes >= 20 ? (Math.floor(cp.detectes/10)*10 < cp.detectes ? "plus de " : "") + Math.floor(cp.detectes/10)*10 : cp.detectes >= 10 ? "plus de 10" : null;
   const objet = nObj ? `${commune} – état des lieux cartographique de ${nObj} plans d'eau` : `Plans d'eau de ${commune} – premier état des lieux cartographique`;
   const corps = [
     `${civ} ${nomA},`,
-    `En votre qualité ${F ? "d'échevine" : "d'échevin"} en charge ${k.competence_courrier}, nous souhaitions attirer votre attention sur un enjeu qui prend une importance croissante pour les communes : la connaissance, le suivi et la préservation de leurs ressources aquatiques.`,
-    "La Région wallonne met aujourd'hui à disposition, notamment via son Géoportail (WalOnMap) et ses images aériennes, des outils particulièrement riches permettant de mieux connaître et suivre l'évolution du territoire.",
-    `Nous avons développé une méthode permettant d'exploiter ces données publiques spécifiquement pour les ressources aquatiques et de les transformer en une lecture directement utile aux responsables communaux.`,
+    `En tant ${F ? "qu'échevine" : "qu'échevin"} en charge ${k.competence_courrier}, vous trouverez ci-dessous un premier état des lieux des plans d'eau de ${commune}, établi à partir des images aériennes et des données publiques de la Région wallonne (Géoportail – WalOnMap).`,
     constat,
-    ...(attention ? [attention] : []),
-    ...parRefs,
-    "Dans un contexte d'augmentation des températures, de périodes de sécheresse plus marquées et d'épisodes de fortes pluies, les mares, étangs, zones humides, bassins de rétention et autres ressources aquatiques jouent un rôle de plus en plus important pour la biodiversité, la gestion de l'eau et la résilience du territoire.",
-    "Nous avons préparé gratuitement pour votre commune un rapport de synthèse permettant de visualiser ces éléments, de distinguer les ressources publiques, privées et techniques et d'identifier les situations qui pourraient mériter une attention particulière.",
-    "Ce rapport permet également de disposer d'un premier état de référence qui pourra servir à suivre l'évolution de ces ressources dans le temps.",
     `Vous pouvez consulter directement le rapport de ${commune} ici :`,
     lien,
-    "Ce rapport constitue une première lecture cartographique du territoire. Il ne remplace pas une observation de terrain ni, lorsque cela s'avère nécessaire, une analyse de l'eau.",
-    `Si certaines observations retiennent votre attention, nous serions heureux de vous rencontrer afin de vous présenter la méthode utilisée, parcourir avec vous les résultats concernant ${commune} et examiner les pistes permettant de mieux connaître, préserver ou améliorer durablement la gestion de certaines pièces d'eau.`,
-    "Cette présentation et cette première rencontre sont proposées gratuitement et sans engagement.",
+    ...(ref ? [`L'enjeu est réel : ${ref.formulation.trim().replace(/[.…\s]+$/, "")}.`] : []),
+    "Ce rapport constitue une première lecture cartographique ; il ne remplace pas une observation de terrain ni, lorsque cela s'avère nécessaire, une analyse de l'eau. Si certains éléments retiennent votre attention, je vous propose une rencontre, gratuite et sans engagement, pour les parcourir ensemble.",
     `Bien cordialement,\n\n${signature}`
   ].join("\n\n");
   return { objet, corps, donnees: { detectes: cp.detectes, publics_etablis: cp.publics_etablis, points_attention: cp.points_attention, composition_mixte: mixte,
-    formulation_nombre: nb.texte, references: refs.map(r => r.code).filter(Boolean), version_rapport: rapport.version } };
+    formulation_nombre: nb.texte, references: refs.map(r => r.code).filter(Boolean), reference_citee: ref ? ref.code : null, version_rapport: rapport.version } };
+}
+// Relance — courte, même destinataire et même lien que le mail initial ; aucun chiffre
+function redigerRelance(parent, k, commune, signature){
+  const F = k.genre === "F", civ = F ? "Madame" : "Monsieur", nomA = k.nom_appel || nomAppelAuto(k.nom);
+  const corps = [
+    `${civ} ${nomA},`,
+    `Je me permets de revenir vers vous au sujet de l'état des lieux cartographique des plans d'eau de ${commune}, que je vous ai adressé le ${dateFr(parent.envoye_le)}.`,
+    `Le rapport, préparé gratuitement pour votre commune, reste accessible ici :`,
+    parent.lien_rapport,
+    "Si ce sujet relève plutôt d'un autre membre du Collège ou d'un service communal, je vous serais reconnaissant de bien vouloir me l'indiquer.",
+    "Je reste à votre disposition pour une rencontre, gratuite et sans engagement.",
+    `Bien cordialement,\n\n${signature}`
+  ].join("\n\n");
+  return { objet: parent.objet, corps };
 }
 
 async function ongletCourriels(){
   let ms = [], ks = [], os = [], reps = [];
   try{ [ms, ks, os, reps] = await Promise.all([
-    q(DB.from("oc_commune_messages").select("id,objet,statut,created_at,valide_le,envoye_le,contact_id").eq("commune_ins", COM.commune_ins).order("created_at", { ascending:false })),
+    q(DB.from("oc_commune_messages").select("id,objet,statut,created_at,valide_le,envoye_le,contact_id,type_message").eq("commune_ins", COM.commune_ins).order("created_at", { ascending:false })),
     q(DB.from("oc_commune_contacts").select("*").eq("commune_ins", COM.commune_ins).eq("actif", true).order("nom")),
     q(DB.from("oc_commune_outreach").select("*").eq("commune_ins", COM.commune_ins).order("date_action", { ascending:false })),
     q(DB.from("oc_commune_reports").select("id,version,statut,publie_le,contenu").eq("commune_ins", COM.commune_ins).eq("statut","publié").order("version", { ascending:false }).limit(1)) ]); }
   catch(e){ return toast(errMsg(e),"ko"); }
   const rap = reps[0];
+  const VU = await consultations();
   const echevins = ks.filter(k => k.fonction === "Échevin" && !k.opposition_contact).map(k => ({ ...k, sc: scoreCompetence(k) })).sort((a,b) => b.sc - a.sc);
   const bourgK = ks.find(k => k.fonction === "Bourgmestre" && !k.opposition_contact);
   const bourg = bourgK && bourgK.verifie && bourgK.email_verifie && bourgK.email ? bourgK : null;
@@ -696,7 +703,7 @@ async function ongletCourriels(){
       <label class="row" style="color:var(--ink)"><input type="checkbox" id="mcc" style="width:auto" ${bourg ? "checked" : "disabled"}> Cc : ${bourg ? `${esc(bourg.nom)} (bourgmestre) &lt;${esc(bourg.email)}&gt;` : `bourgmestre${bourgK ? " " + esc(bourgK.nom) : ""} — à compléter : ${esc(bourgManque.join(", "))} (<a href="#/commune/${esc(COM.commune_ins)}/contacts">Élus et contacts</a>)`}</label>
       <div style="margin-top:10px"><button class="primary" id="mprep" ${echevins.length ? "" : "disabled"}>Préparer le mail</button></div>
       <p class="muted small">Le mail est préparé, jamais envoyé : vous le copiez dans votre messagerie.</p></div></div>
-    <div class="card"><h2>Mails de la commune</h2>${ms.length ? `<table><tbody>${ms.map(m => `<tr class="click" data-m="${m.id}"><td>${esc(m.objet)}<div class="small muted">créé le ${dateFr(m.created_at)}${m.envoye_le?` · envoyé le ${dateFr(m.envoye_le)}`:""}</div></td><td>${statutPill(m.statut)}</td></tr>`).join("")}</tbody></table>` : `<p class="muted">Aucun mail.</p>`}
+    <div class="card"><h2>Mails de la commune</h2>${ms.length ? `<table><tbody>${ms.map(m => `<tr class="click" data-m="${m.id}"><td>${m.type_message === "relance" ? `<span class="pill">relance</span> ` : ""}${esc(m.objet)}<div class="small muted">créé le ${dateFr(m.created_at)}${m.envoye_le?` · envoyé le ${dateFr(m.envoye_le)}`:""}</div></td><td>${statutPill(m.statut)}${consultPill(m, VU)}</td></tr>`).join("")}</tbody></table>` : `<p class="muted">Aucun mail.</p>`}
       <h2 style="margin-top:16px">Démarches enregistrées</h2>${os.length ? `<ul class="small">${os.map(o => `<li>${dateFr(o.date_action)} · ${esc(o.type)} · ${esc(o.objet||"")}</li>`).join("")}</ul>` : `<p class="muted small">Aucune démarche.</p>`}</div></div>`;
   const info = () => { const k = echevins.find(x => x.id === $("#mk").value); if(!k) return;
     $("#mkinfo").innerHTML = pret(k) ? `<span class="pill ok">toutes les données sont vérifiées</span>` : `<span class="pill ko">à compléter : ${manque(k).join(", ")}</span> — <a href="#/commune/${esc(COM.commune_ins)}/contacts">Élus et contacts</a>`; };
@@ -730,6 +737,10 @@ async function ongletCourriels(){
     }catch(e){ toast(errMsg(e), "ko"); btn.disabled = false; }
   };
 }
+// suivi : consultations du rapport après l'envoi (vos propres tests avant envoi ne sont pas comptés)
+async function consultations(){ try{ const r = await DB.rpc("oc_consultations_messages"); return Object.fromEntries((r||[]).map(x => [x.message_id, x])); }catch(e){ return {}; } }
+const consultPill = (m, cs) => { if(m.statut !== "envoyé") return ""; const x = cs[m.id];
+  return x && x.consultations_apres_envoi > 0 ? ` <span class="pill ok">rapport consulté${x.consultations_apres_envoi > 1 ? " " + x.consultations_apres_envoi + " fois" : ""} · ${dateFr(x.derniere_consultation)}</span>` : ` <span class="pill warn">rapport pas encore consulté</span>`; };
 const statutPill = s => `<span class="pill ${s==="envoyé"?"ok":s==="validé"?"info":s==="annulé"?"":"warn"}">${s==="validé" ? "PRÊT À ENVOYER" : esc(s)}</span>`;
 
 /* =====================================================================
@@ -737,10 +748,11 @@ const statutPill = s => `<span class="pill ${s==="envoyé"?"ok":s==="validé"?"i
    ===================================================================== */
 async function viewCourriel(id){
   $("#app").innerHTML = `<p class="muted">Chargement…</p>`;
-  let m, k, c, ctl, rap = null;
+  let m, k, c, ctl, rap = null, cs = {}, relances = [];
   try{ m = await q(DB.from("oc_commune_messages").select("*").eq("id", id).single());
     [k, c] = await Promise.all([ m.contact_id ? q(DB.from("oc_commune_contacts").select("*").eq("id", m.contact_id).single()) : null, q(DB.from("oc_communes").select("nom,commune_ins").eq("commune_ins", m.commune_ins).single()) ]);
     if(m.report_id) rap = (await q(DB.from("oc_commune_reports").select("id,version,contenu").eq("id", m.report_id)))[0] || null;
+    [cs, relances] = await Promise.all([ consultations(), q(DB.from("oc_commune_messages").select("id,statut,created_at,envoye_le").eq("parent_id", m.id)) ]);
     ctl = m.donnees ? await DB.rpc("oc_controles_mail", { p: m }) : await DB.rpc("oc_controles_envoi", { p_ins: m.commune_ins, p_contact: m.contact_id });
   }catch(e){ $("#app").innerHTML = `<div class="card"><b>Erreur :</b> ${esc(errMsg(e))}</div>`; return; }
   const edit = m.statut === "brouillon";
@@ -749,7 +761,12 @@ async function viewCourriel(id){
   const champ = (lbl, idc, val, btn) => `<label>${lbl}</label><div class="row" style="align-items:flex-start"><input readonly id="${idc}" value="${esc(val)}" style="flex:1">
     <button type="button" data-copy="${idc}">${btn}</button></div>`;
   $("#app").innerHTML = `<p class="small"><a href="#/commune/${esc(c.commune_ins)}/courriels">← ${esc(c.nom)}</a></p>
-    <div class="row"><h1>Mail — ${esc(c.nom)}</h1><span style="flex:1"></span>${statutPill(m.statut)}</div>
+    <div class="row"><h1>${m.type_message === "relance" ? "Relance" : "Mail"} — ${esc(c.nom)}</h1><span style="flex:1"></span>${statutPill(m.statut)}${consultPill(m, cs)}</div>
+    ${m.type_message === "relance" && m.parent_id ? `<p class="small">Relance du <a href="#/courriel/${esc(m.parent_id)}">mail initial</a> — même destinataire, même lien.</p>` : ""}
+    ${m.statut === "envoyé" && m.type_message !== "relance" ? (() => { const act = relances.filter(r => r.statut !== "annulé");
+      return `<div class="card"><h2>Suivi</h2><p class="small">${(cs[m.id] && cs[m.id].consultations_apres_envoi) ? `Le rapport a été consulté ${cs[m.id].consultations_apres_envoi} fois depuis l'envoi du ${dateFr(m.envoye_le)} (première consultation le ${dateFr(cs[m.id].premiere_consultation)}, dernière le ${dateFr(cs[m.id].derniere_consultation)}).` : `Le rapport n'a pas encore été consulté depuis l'envoi du ${dateFr(m.envoye_le)}.`}</p>
+        ${act.length ? `<p class="small">Relance : ${act.map(r => `<a href="#/courriel/${r.id}">${r.statut === "envoyé" ? "envoyée le " + dateFr(r.envoye_le) : "préparée le " + dateFr(r.created_at) + " (" + (r.statut === "validé" ? "prête à envoyer" : r.statut) + ")"}</a>`).join(", ")}</p>`
+          : `<button class="primary" id="mrel">Préparer une relance</button><p class="muted small">Conseil : relancer 8 à 10 jours après l'envoi, de préférence si le rapport n'a pas été consulté. La relance est courte, reprend le même lien et ne cite aucun chiffre.</p>`}</div>`; })() : ""}
     <div class="grid g2"><div class="card">
       ${champ("À", "fa", a, "COPIER À")}${champ("Cc", "fc", m.cc_email || "", "COPIER CC")}${champ("Objet", "fo", m.objet, "COPIER OBJET")}
       <div id="zmsg"><label>Message — tel qu'il apparaîtra dans votre messagerie</label>
@@ -763,7 +780,7 @@ async function viewCourriel(id){
       </div>
       <h2 style="margin-top:16px">Tests avant envoi</h2>
       <div class="row">
-        ${m.lien_rapport ? `<button id="tlien">Tester le lien ↗</button>` : ""} ${m.lien_teste_le ? `<span class="pill ok">lien testé le ${dateFr(m.lien_teste_le)}</span>` : `<span class="pill warn">lien non testé</span>`}</div>
+        ${m.type_message === "relance" ? `<span class="small muted">Même lien que le mail initial (ne pas le rouvrir : vos ouvertures seraient comptées comme des consultations).</span>` : m.lien_rapport ? `<button id="tlien">Tester le lien ↗</button>` : ""} ${m.lien_teste_le ? `<span class="pill ok">lien testé le ${dateFr(m.lien_teste_le)}</span>` : `<span class="pill warn">lien non testé</span>`}</div>
       <div class="row" style="margin-top:6px">
         <button id="tcontact">Tester le bouton de contact du rapport</button> ${m.contact_teste_le ? `<span class="pill ok">bouton de contact testé le ${dateFr(m.contact_teste_le)}</span>` : `<span class="pill warn">bouton de contact non testé</span>`}</div>
       <p class="muted small">« Tester le bouton de contact » ouvre votre messagerie exactement comme le fera le bouton « Échanger avec nous sur ce rapport » : vérifiez l'adresse, l'objet et le texte, puis fermez ce brouillon sans l'envoyer.</p>
@@ -802,6 +819,17 @@ async function viewCourriel(id){
     $("#mback").onclick = () => upd({ statut: "brouillon" }, "Repassé en brouillon");
   }
   if($("#mcancel")) $("#mcancel").onclick = () => { if(confirm("Annuler ce mail ?")) upd({ statut: "annulé" }, "Mail annulé"); };
+  if($("#mrel")) $("#mrel").onclick = async () => {
+    if(!k) return toast("Contact introuvable", "ko");
+    try{
+      const signature = ((await params("signature_courriel")).texte) || "François-Xavier Despret\nAquiklin";
+      const r = redigerRelance(m, k, c.nom, signature);
+      const [n] = await q(DB.from("oc_commune_messages").insert({ commune_ins: m.commune_ins, contact_id: m.contact_id, report_id: m.report_id, objet: r.objet, corps: r.corps,
+        destinataire_email: m.destinataire_email, cc_contact_id: m.cc_contact_id, cc_email: m.cc_email, lien_rapport: m.lien_rapport,
+        donnees: { ...(m.donnees || {}), references: [], reference_citee: null }, sites: m.sites || [], campaign_id: m.campaign_id || null,
+        type_message: "relance", parent_id: m.id, lien_teste_le: m.lien_teste_le, contact_teste_le: m.contact_teste_le }).select("id"));
+      location.hash = "#/courriel/" + n.id;
+    }catch(e){ toast(errMsg(e), "ko"); } };
 }
 /* ---- références institutionnelles ---- */
 async function viewReferences(){
@@ -847,10 +875,10 @@ async function viewCoordonnees(){
 /* ---- liste de tous les courriels ---- */
 async function viewCourriels(){
   $("#app").innerHTML = `<h1>Mails</h1><div class="card"><p class="muted">Chargement…</p></div>`;
-  let ms, cs; try{ [ms, cs] = await Promise.all([ q(DB.from("oc_commune_messages").select("id,commune_ins,objet,statut,created_at,envoye_le").order("created_at", { ascending:false })), q(DB.from("oc_communes").select("commune_ins,nom")) ]); }
+  let ms, cs, vu = {}; try{ [ms, cs, vu] = await Promise.all([ q(DB.from("oc_commune_messages").select("id,commune_ins,objet,statut,created_at,envoye_le,type_message").order("created_at", { ascending:false })), q(DB.from("oc_communes").select("commune_ins,nom")), consultations() ]); }
   catch(e){ $("#app .card").innerHTML = esc(errMsg(e)); return; }
   const nom = Object.fromEntries(cs.map(c => [c.commune_ins, c.nom]));
-  $("#app .card").innerHTML = ms.length ? `<table><thead><tr><th>Commune</th><th>Objet</th><th>Créé le</th><th>Envoyé le</th><th>Statut</th></tr></thead><tbody>${ms.map(m => `<tr class="click" data-m="${m.id}"><td>${esc(nom[m.commune_ins]||m.commune_ins)}</td><td>${esc(m.objet)}</td><td>${dateFr(m.created_at)}</td><td>${dateFr(m.envoye_le)}</td><td>${statutPill(m.statut)}</td></tr>`).join("")}</tbody></table>` : `<p class="muted">Aucun courriel préparé.</p>`;
+  $("#app .card").innerHTML = ms.length ? `<table><thead><tr><th>Commune</th><th>Objet</th><th>Créé le</th><th>Envoyé le</th><th>Statut</th></tr></thead><tbody>${ms.map(m => `<tr class="click" data-m="${m.id}"><td>${esc(nom[m.commune_ins]||m.commune_ins)}</td><td>${m.type_message === "relance" ? `<span class="pill">relance</span> ` : ""}${esc(m.objet)}</td><td>${dateFr(m.created_at)}</td><td>${dateFr(m.envoye_le)}</td><td>${statutPill(m.statut)}${consultPill(m, vu)}</td></tr>`).join("")}</tbody></table>` : `<p class="muted">Aucun courriel préparé.</p>`;
   document.querySelectorAll("[data-m]").forEach(tr => tr.onclick = () => location.hash = "#/courriel/" + tr.dataset.m);
 }
 
