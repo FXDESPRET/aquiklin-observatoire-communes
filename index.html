@@ -21,7 +21,7 @@ window.OC_CONFIG = {
   SB_URL: "https://dnunawdqljlvkhwvwxxa.supabase.co",
   SB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ",   // clé publique « anon » (la même que dans l'Observatoire)
   AUTH_STORAGE_KEY: "aquiklin-oc-auth",       // distinct de l'Observatoire actuel
-  VERSION: "0.7.3 – pilote"
+  VERSION: "0.7.6 – pilote"
 };
 </script>
 <style>
@@ -150,12 +150,23 @@ function errMsg(e){ return (e && (e.message || e.details || e.hint)) || String(e
 function modal(html){ const m = document.createElement("div"); m.className = "modal"; m.innerHTML = `<div class="card">${html}<div class="row" style="justify-content:flex-end;margin-top:12px"><button data-close>Fermer</button></div></div>`;
   m.addEventListener("click", ev => { if(ev.target === m || ev.target.hasAttribute("data-close")) m.remove(); }); document.body.appendChild(m); return m; }
 // version mise en forme du mail (HTML compatible Gmail, Outlook, Apple Mail) : paragraphes + bouton cliquable vers le rapport
+// Bouton vers le rapport + encadré « Vous hésitez à cliquer ? » à côté ; lien de secours en dessous.
+// Le paragraphe correspondant du texte est placé dans l'encadré (et non répété plus bas).
 function mailHtml(corps, lien, commune){
-  const bouton = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0 10px;width:auto"><tr><td bgcolor="#3f6b4f" style="background:#3f6b4f;border-radius:6px;padding:12px 22px">`
-    + `<a href="${esc(lien)}" target="_blank" style="color:#ffffff;text-decoration:none;font-weight:bold;font-family:Arial,Helvetica,sans-serif;font-size:15px;display:inline-block">Consulter le rapport de ${esc(commune)}&nbsp;&rarr;</a></td></tr></table>`
+  const paras0 = String(corps || "").split(/\n\s*\n/);
+  const iPrud = paras0.findIndex(p => /^(Vous hésitez à cliquer|Par prudence)/.test(p.trim()));
+  const prudence = iPrud >= 0 ? paras0[iPrud].trim() : null;
+  const paras1 = paras0.filter((p, i) => i !== iPrud);
+  const liensDans = t => esc(t).replace(/(\+?\d[\d ]{7,}\d)/g, m => `<a href="tel:${m.replace(/ /g, "")}" style="color:#3f6b4f;font-weight:bold;text-decoration:none;white-space:nowrap">&#128222;&nbsp;${m}</a>`)
+                               .replace(/([\w.+-]+@[\w-]+\.[\w.-]*\w)/g, m => `<a href="mailto:${m}" style="color:#3f6b4f;font-weight:bold;white-space:nowrap">&#9993;&#65039;&nbsp;${m}</a>`);
+  const btn = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:auto"><tr><td bgcolor="#3f6b4f" style="background:#3f6b4f;border-radius:6px;padding:12px 22px">`
+    + `<a href="${esc(lien)}" target="_blank" style="color:#ffffff;text-decoration:none;font-weight:bold;font-family:Arial,Helvetica,sans-serif;font-size:15px;display:inline-block;white-space:nowrap">Consulter le rapport de ${esc(commune)}&nbsp;&rarr;</a></td></tr></table>`;
+  const cadre = prudence ? `<td valign="middle" style="padding:0 0 0 14px"><table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:auto;max-width:330px"><tr>`
+    + `<td bgcolor="#eef3ea" style="background:#eef3ea;border:1px solid #9cbca6;border-left:4px solid #3f6b4f;border-radius:6px;padding:9px 12px;font-family:Arial,Helvetica,sans-serif;font-size:12.5px;line-height:1.45;color:#2b333a">${liensDans(prudence)}</td></tr></table></td>` : "";
+  const bouton = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0 10px;width:auto"><tr><td valign="middle">${btn}</td>${cadre}</tr></table>`
     + `<p style="margin:0 0 4px;font-size:13px;color:#555555">Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur :</p>`
     + `<p style="margin:0 0 14px;font-size:13px;word-break:break-all"><a href="${esc(lien)}" style="color:#3f6b4f">${esc(lien)}</a></p>`;
-  const paras = String(corps || "").split(/\n\s*\n/).map(p => {
+  const paras = paras1.map(p => {
     if(lien && p.trim() === lien) return bouton;
     if(lien && p.includes(lien)){ const avant = p.replace(lien, "").trim(); return (avant ? `<p style="margin:0 0 8px">${esc(avant).replace(/\n/g, "<br>")}</p>` : "") + bouton; }
     return `<p style="margin:0 0 14px">${esc(p).replace(/\n/g, "<br>")}</p>`; });
@@ -661,7 +672,7 @@ function redigerMail(k, c, rapport, lien, signature){
 function phraseSecurite(ct, lien){
   if(!ct || (!ct.telephone && !ct.email)) return null;
   const moyens = [ct.telephone ? `appelez-moi au ${ct.telephone}` : null, ct.email ? `écrivez-moi à ${ct.email}` : null].filter(Boolean).join(" ou ");
-  return `Par prudence, vous hésitez à cliquer ? ${moyens.charAt(0).toUpperCase() + moyens.slice(1)} : je vous confirmerai que vous pouvez le faire en toute sécurité. Le lien ouvre une simple page de consultation, sans identifiant ni mot de passe.`;
+  return `Vous hésitez à cliquer ? ${moyens.charAt(0).toUpperCase() + moyens.slice(1)} : je vous confirmerai que vous pouvez le faire en toute sécurité.`;
 }
 // Relance — courte, même destinataire et même lien que le mail initial ; aucun chiffre
 function redigerRelance(parent, k, commune, signature, ct){
@@ -803,6 +814,7 @@ async function viewCourriel(id){
       <ul class="checks">${(ctl.controles||[]).map(x => `<li>${x.ok ? '<span class="pill ok">✓</span>' : `<span class="pill ${x.bloquant === false ? "warn" : "ko"}">${x.bloquant === false ? "! à noter" : "✗"}</span>`} ${esc(x.libelle)}</li>`).join("")}</ul>
       <p class="small" style="margin-top:10px">${ctl.pret ? '<span class="pill ok">Toutes les conditions sont remplies</span>' : '<span class="pill ko">« PRÊT À ENVOYER » impossible</span> tant qu\'une condition n\'est pas remplie.'}</p>
       ${k ? `<p class="small"><a href="#/commune/${esc(c.commune_ins)}/contacts">Compléter / vérifier le contact</a>${k.email_source_url ? ` · <a href="${esc(k.email_source_url)}" target="_blank" rel="noopener">page où l'adresse a été trouvée ↗</a>` : ""}</p>` : ""}
+      ${m.statut === "brouillon" && !/hésitez à cliquer/.test(m.corps || "") ? `<p class="small"><span class="pill warn">phrase « Vous hésitez à cliquer ? » absente</span> — ${ct && (ct.telephone || ct.email) ? "ce mail a été préparé avec une version antérieure de l'outil : annulez-le et préparez-en un nouveau." : `aucun téléphone ni e-mail de contact : complétez <a href="#/references">Références → Coordonnées affichées dans les rapports</a> (script oc_14 requis), puis préparez un nouveau mail.`}</p>` : ""}
       ${ct && !ct.email ? `<p class="small"><span class="pill ko">adresse e-mail de contact Aquiklin absente du rapport</span> — à indiquer dans <a href="#/references">Références → Coordonnées affichées dans les rapports</a>, puis préparer un nouveau mail.</p>` : ""}
       ${m.donnees ? `<h2 style="margin-top:14px">Données injectées</h2><ul class="small"><li>${esc(m.donnees.formulation_nombre)} (${m.donnees.detectes} détectés)</li><li>Publics établis : ${m.donnees.publics_etablis}${m.donnees.publics_etablis >= 3 ? " (cités)" : " (non cités : moins de 3)"}</li><li>Points d'attention : ${m.donnees.points_attention}</li><li>Références : ${esc((m.donnees.references||[]).join(", ") || "aucune")}</li><li>Rapport version ${m.donnees.version_rapport}</li>${ct ? `<li>Contact du rapport : ${esc(ct.email || "e-mail absent")} · ${esc(ct.telephone || "téléphone absent")}</li>` : ""}</ul>` : ""}
       <p class="muted small">Aucun envoi automatique : le mail part de votre messagerie.</p></div></div>`;
