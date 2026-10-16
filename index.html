@@ -21,7 +21,7 @@ window.OC_CONFIG = {
   SB_URL: "https://dnunawdqljlvkhwvwxxa.supabase.co",
   SB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ",   // clé publique « anon » (la même que dans l'Observatoire)
   AUTH_STORAGE_KEY: "aquiklin-oc-auth",       // distinct de l'Observatoire actuel
-  VERSION: "0.7.6 – pilote"
+  VERSION: "0.8 – pilote"
 };
 </script>
 <style>
@@ -219,13 +219,14 @@ async function logout(){ await sb.auth.signOut(); location.hash = ""; renderLogi
 /* ---------------- routage ---------------- */
 function route(){
   const h = location.hash.replace(/^#\/?/, "").split("/");
-  const navs = [["", "Tableau de prospection"], ["courriels", "Mails"], ["references", "Références"], ["aide", "Mode d'emploi"]];
+  const navs = [["", "Tableau de prospection"], ["campagne", "Campagne"], ["courriels", "Mails"], ["references", "Références"], ["aide", "Mode d'emploi"]];
   $("#nav").innerHTML = navs.map(([k,l]) => `<a href="#/${k}" class="${(h[0]||"")===k ? "on" : ""}">${l}</a>`).join("");
   try{
     if(h[0] === "commune" && h[1]) return viewCommune(h[1], h[2]);
     if(h[0] === "courriel" && h[1]) return viewCourriel(h[1]);
     if(h[0] === "courriels") return viewCourriels();
     if(h[0] === "references") return viewReferences();
+    if(h[0] === "campagne") return viewCampagne(h[1]);
     if(h[0] === "aide") return viewAide();
     return viewTableau();
   }catch(e){ $("#app").innerHTML = `<div class="card"><b>Erreur :</b> ${esc(errMsg(e))}</div>`; }
@@ -892,6 +893,102 @@ async function viewCoordonnees(){
     const v = { nom: $("#cn").value.trim(), organisation: $("#co").value.trim(), email: $("#ce").value.trim() || null, telephone: $("#ct").value.trim() || null, site: $("#cs").value.trim() || null };
     if(v.email && !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(v.email)) return toast("Adresse e-mail invalide", "ko");
     try{ await q(DB.from("oc_parametres").update({ valeur: v }).eq("cle", "contact_rapport")); toast("Coordonnées enregistrées", "ok"); viewCoordonnees(); }catch(e){ toast(errMsg(e), "ko"); } };
+}
+
+/* =====================================================================
+   CAMPAGNE : suivi par commune (vérifications → mail → envoi → consultation → relance → issue)
+   ===================================================================== */
+const ISSUES = ["réponse reçue", "intéressé", "rendez-vous fixé", "pas intéressé", "sans suite", "ne plus contacter"];
+const ETAPE_CLASSE = e => /rendez-vous|intéressé|réponse|consulté/.test(e) ? "ok" : /à relancer|pas intéressé|sans suite|ne plus/.test(e) ? "ko"
+  : /envoyé|relancée|prêt/.test(e) ? "info" : "warn";
+const FILTRES_CAMP = {
+  tous:     ["Toutes", r => true],
+  afaire:   ["À préparer", r => r.ordre_etape < 50],
+  pret:     ["Prêts à envoyer", r => r.ordre_etape === 50],
+  attente:  ["Envoyés", r => r.mail_statut === "envoyé" && !r.issue],
+  relancer: ["À relancer", r => !!r.a_relancer],
+  issues:   ["Réponses et rendez-vous", r => !!r.issue] };
+let FILTRE_CAMP = "tous";
+async function viewCampagne(id){
+  $("#app").innerHTML = `<p class="muted">Chargement…</p>`;
+  let camps, rows = [], toutes;
+  try{
+    camps = await q(DB.from("oc_commune_campaigns").select("id,nom,description,statut,date_debut").order("date_debut", { ascending:false }));
+    if(!camps.length){ $("#app").innerHTML = `<h1>Campagne</h1><div class="card"><p>Aucune campagne.</p><button class="primary" id="cnew">Créer une campagne</button></div>`; $("#cnew").onclick = nouvelleCampagne; return; }
+    if(!id || !camps.some(c => c.id === id)) id = (camps.find(c => c.statut === "en cours") || camps[0]).id;
+    [rows, toutes] = await Promise.all([ DB.rpc("oc_campagne_suivi", { p_campaign: id }), q(DB.from("oc_communes").select("commune_ins,nom").order("nom")) ]);
+  }catch(e){ $("#app").innerHTML = `<div class="card"><b>Erreur :</b> ${esc(errMsg(e))}<p class="small muted">Le script oc_17 a-t-il été exécuté ?</p></div>`; return; }
+  rows = rows || [];
+  const camp = camps.find(c => c.id === id);
+  const n = f => rows.filter(f).length, pct = (a, b) => b ? Math.round(a / b * 100) + " %" : "—";
+  const envoyes = n(r => r.mail_statut === "envoyé"), consultes = n(r => r.mail_statut === "envoyé" && r.consultations > 0);
+  const reponses = n(r => !!r.issue && r.issue !== "sans suite"), rdv = n(r => r.issue === "rendez-vous fixé");
+  const dans = new Set(rows.map(r => r.commune_ins)), dispo = toutes.filter(c => !dans.has(c.commune_ins));
+  const lignes = rows.filter(FILTRES_CAMP[FILTRE_CAMP][1]);
+  $("#app").innerHTML = `<div class="row"><h1>Campagne</h1><span style="flex:1"></span>
+      <select id="csel" style="width:auto">${camps.map(c => `<option value="${c.id}" ${c.id === id ? "selected" : ""}>${esc(c.nom)} (${esc(c.statut)})</option>`).join("")}</select>
+      <button id="cnew">Nouvelle campagne</button></div>
+    ${camp.description ? `<p class="muted small">${esc(camp.description)}</p>` : ""}
+    <div class="card"><div class="kpi">
+      <div><b>${rows.length}</b>communes</div>
+      <div><b>${envoyes}</b>mails envoyés</div>
+      <div><b>${consultes}</b>rapports consultés <span class="small muted">(${pct(consultes, envoyes)})</span></div>
+      <div><b>${n(r => r.relance_statut === "envoyé")}</b>relances</div>
+      <div><b>${reponses}</b>réponses <span class="small muted">(${pct(reponses, envoyes)})</span></div>
+      <div><b>${rdv}</b>rendez-vous <span class="small muted">(${pct(rdv, envoyes)})</span></div>
+    </div>
+    ${n(r => r.a_relancer) ? `<p class="small" style="margin-top:10px"><span class="pill ko">${n(r => r.a_relancer)} commune(s) à relancer</span> envoyées il y a plus de 8 jours, rapport non consulté.</p>` : ""}</div>
+    <div class="card"><div class="tabs" id="ctabs">${Object.entries(FILTRES_CAMP).map(([k,[l,f]]) => `<button data-f="${k}" class="${k===FILTRE_CAMP?"on":""}">${l} (${n(f)})</button>`).join("")}</div>
+      ${lignes.length ? `<div style="overflow-x:auto"><table><thead><tr><th>Commune</th><th>Étape</th><th>Mail</th><th>Rapport</th><th>Relance</th><th>Issue</th><th></th></tr></thead><tbody>${lignes.map(r => `<tr>
+        <td><a href="#/commune/${esc(r.commune_ins)}/courriels"><b>${esc(r.nom)}</b></a><div class="small muted">${r.detectes ? fmt(r.detectes) + " plans d'eau" : "non analysée"}${r.score_global != null ? " · score " + fmt(r.score_global, 1) : ""}${r.echevins ? ` · élus prêts ${r.echevins_prets}/${r.echevins}` : ""}</div></td>
+        <td><span class="pill ${ETAPE_CLASSE(r.etape)}">${esc(r.etape)}</span>${r.etape === "sites à vérifier" ? `<div class="small muted">${r.sites_a_verifier} site(s)</div>` : ""}</td>
+        <td class="small">${r.mail_id ? `<a href="#/courriel/${r.mail_id}">${r.mail_statut === "envoyé" ? "envoyé le " + dateFr(r.mail_envoye_le) : r.mail_statut === "validé" ? "prêt à envoyer" : esc(r.mail_statut)}</a>` : "—"}</td>
+        <td class="small">${r.mail_statut === "envoyé" ? (r.consultations ? `<span class="pill ok">consulté${r.consultations > 1 ? " " + r.consultations + "×" : ""}</span><div class="muted">${dateFr(r.derniere_consultation)}</div>` : `<span class="muted">pas encore</span>`) : "—"}</td>
+        <td class="small">${r.relance_id ? `<a href="#/courriel/${r.relance_id}">${r.relance_statut === "envoyé" ? "envoyée le " + dateFr(r.relance_envoyee_le) : esc(r.relance_statut)}</a>` : r.a_relancer ? `<a style="white-space:nowrap" href="#/courriel/${r.mail_id}">préparer ›</a>` : "—"}</td>
+        <td class="small">${r.issue ? `<b>${esc(r.issue)}</b><div class="muted">${dateFr(r.issue_le)}${r.rdv_le ? " · RDV " + dateFr(r.rdv_le) : ""}</div>` : "—"}${r.note ? `<div class="muted">${esc(r.note)}</div>` : ""}</td>
+        <td><button style="white-space:nowrap" data-iss="${esc(r.commune_ins)}">${r.issue ? "Modifier" : "Noter une réponse"}</button></td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="muted">Aucune commune dans ce filtre.</p>`}
+      <div class="row" style="margin-top:12px"><select id="cadd" style="width:auto"><option value="">Ajouter une commune à la campagne…</option>${dispo.map(c => `<option value="${c.commune_ins}">${esc(c.nom)}</option>`).join("")}</select>
+        <button id="caddb" ${dispo.length ? "" : "disabled"}>Ajouter</button></div>
+      <p class="muted small">L'étape est calculée automatiquement : vérifications → mail → envoi → consultation du rapport → relance (après 8 jours sans consultation) → issue. Seule l'issue (réponse, rendez-vous…) se note à la main.</p></div>`;
+  $("#csel").onchange = () => { location.hash = "#/campagne/" + $("#csel").value; };
+  $("#cnew").onclick = nouvelleCampagne;
+  document.querySelectorAll("#ctabs button").forEach(b => b.onclick = () => { FILTRE_CAMP = b.dataset.f; viewCampagne(id); });
+  $("#caddb").onclick = async () => { const ins = $("#cadd").value; if(!ins) return;
+    try{ await q(DB.from("oc_campaign_communes").insert({ campaign_id: id, commune_ins: ins, ordre: 100 + rows.length })); toast("Commune ajoutée", "ok"); viewCampagne(id); }catch(e){ toast(errMsg(e), "ko"); } };
+  document.querySelectorAll("[data-iss]").forEach(b => b.onclick = () => noterIssue(id, rows.find(r => r.commune_ins === b.dataset.iss)));
+}
+function noterIssue(campId, r){
+  const md = modal(`<h1>${esc(r.nom)} — issue de la démarche</h1>
+    <label>Issue</label><select id="ii"><option value="">— aucune (en attente) —</option>${ISSUES.map(x => `<option ${x === r.issue ? "selected" : ""}>${x}</option>`).join("")}</select>
+    <div class="grid g2"><div><label>Date</label><input id="id" type="date" value="${esc(r.issue_le || today())}"></div><div><label>Date du rendez-vous</label><input id="ir" type="date" value="${esc(r.rdv_le || "")}"></div></div>
+    <label>Note (qui a répondu, ce qui a été dit, prochaine étape)</label><textarea id="in">${esc(r.note || "")}</textarea>
+    <p class="muted small">« ne plus contacter » bloque aussi le destinataire du mail (case « opposition » de l'élu) : plus aucun mail ne pourra lui être préparé.</p>
+    <div style="margin-top:10px"><button class="primary" id="isave">Enregistrer</button></div>`);
+  md.querySelector("#isave").onclick = async () => {
+    const issue = md.querySelector("#ii").value || null, issue_le = issue ? (md.querySelector("#id").value || today()) : null, rdv_le = md.querySelector("#ir").value || null, note = md.querySelector("#in").value.trim() || null;
+    try{
+      await q(DB.from("oc_campaign_communes").update({ issue, issue_le, rdv_le, note }).eq("campaign_id", campId).eq("commune_ins", r.commune_ins));
+      if(issue && issue !== r.issue){
+        await q(DB.from("oc_commune_outreach").insert({ commune_ins: r.commune_ins, campaign_id: campId, type: issue === "rendez-vous fixé" ? "réunion" : "réponse reçue",
+          sens: "entrant", statut: "fait", date_action: issue_le, objet: issue, resume: note, prochaine_action: rdv_le ? "Rendez-vous" : null, prochaine_action_date: rdv_le }));
+        const statutCommune = issue === "rendez-vous fixé" ? "rendez-vous" : ["pas intéressé","sans suite","ne plus contacter"].includes(issue) ? "sans suite" : null;
+        if(statutCommune) await q(DB.from("oc_communes").update({ statut: statutCommune }).eq("commune_ins", r.commune_ins));
+        if(issue === "ne plus contacter" && r.mail_id){
+          const m = (await q(DB.from("oc_commune_messages").select("contact_id").eq("id", r.mail_id)))[0];
+          if(m && m.contact_id) await q(DB.from("oc_commune_contacts").update({ opposition_contact: true }).eq("id", m.contact_id));
+        }
+      }
+      md.remove(); toast("Issue enregistrée", "ok"); viewCampagne(campId);
+    }catch(e){ toast(errMsg(e), "ko"); } };
+}
+async function nouvelleCampagne(){
+  const md = modal(`<h1>Nouvelle campagne</h1><label>Nom</label><input id="nn" placeholder="ex. Vague 1 – Namur, novembre 2026">
+    <label>Description</label><textarea id="nd" placeholder="communes visées, objectif…"></textarea>
+    <div style="margin-top:10px"><button class="primary" id="nsave">Créer</button></div>`);
+  md.querySelector("#nsave").onclick = async () => { const nom = md.querySelector("#nn").value.trim(); if(!nom) return toast("Indiquez un nom", "ko");
+    try{ const [c] = await q(DB.from("oc_commune_campaigns").insert({ nom, description: md.querySelector("#nd").value.trim() || null, statut: "en cours", date_debut: today() }).select("id"));
+      md.remove(); location.hash = "#/campagne/" + c.id; }catch(e){ toast(errMsg(e), "ko"); } };
 }
 /* ---- liste de tous les courriels ---- */
 async function viewCourriels(){
