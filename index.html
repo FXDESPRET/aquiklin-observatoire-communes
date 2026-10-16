@@ -21,7 +21,7 @@ window.OC_CONFIG = {
   SB_URL: "https://dnunawdqljlvkhwvwxxa.supabase.co",
   SB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ",   // clé publique « anon » (la même que dans l'Observatoire)
   AUTH_STORAGE_KEY: "aquiklin-oc-auth",       // distinct de l'Observatoire actuel
-  VERSION: "0.7.1 – pilote"
+  VERSION: "0.7.2 – pilote"
 };
 </script>
 <style>
@@ -190,7 +190,7 @@ async function boot(){
   if(!USER) return renderLogin();
   let admin = false; try{ admin = await DB.rpc("oc_is_admin"); }catch(e){}
   if(!admin){ $("#app").innerHTML = `<div class="card login"><h2>Accès réservé</h2><p>Ce compte n'est pas autorisé.</p><button id="out">Se déconnecter</button></div>`; $("#out").onclick = logout; return; }
-  $("#who").innerHTML = `${esc(USER.email)} · <a href="#" id="lo">déconnexion</a>`; $("#lo").onclick = e => { e.preventDefault(); logout(); };
+  $("#who").innerHTML = `<a href="https://aquiklin-observatoire.vercel.app" target="_blank" rel="noopener" title="Ouvrir l'Observatoire des plans d'eau">← Observatoire</a> · ${esc(USER.email)} · <a href="#" id="lo">déconnexion</a>`; $("#lo").onclick = e => { e.preventDefault(); logout(); };
   window.addEventListener("hashchange", route); route();
 }
 function renderLogin(){
