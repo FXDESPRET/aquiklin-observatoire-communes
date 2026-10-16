@@ -21,7 +21,7 @@ window.OC_CONFIG = {
   SB_URL: "https://dnunawdqljlvkhwvwxxa.supabase.co",
   SB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ",   // clé publique « anon » (la même que dans l'Observatoire)
   AUTH_STORAGE_KEY: "aquiklin-oc-auth",       // distinct de l'Observatoire actuel
-  VERSION: "0.7.2 – pilote"
+  VERSION: "0.7.3 – pilote"
 };
 </script>
 <style>
@@ -649,6 +649,7 @@ function redigerMail(k, c, rapport, lien, signature){
     constat,
     `Vous pouvez consulter directement le rapport de ${commune} ici :`,
     lien,
+    ...(phraseSecurite(c.contact, lien) ? [phraseSecurite(c.contact, lien)] : []),
     ...(ref ? [`L'enjeu est réel : ${ref.formulation.trim().replace(/[.…\s]+$/, "")}.`] : []),
     "Ce rapport constitue une première lecture cartographique ; il ne remplace pas une observation de terrain ni, lorsque cela s'avère nécessaire, une analyse de l'eau. Si certains éléments retiennent votre attention, je vous propose une rencontre, gratuite et sans engagement, pour les parcourir ensemble.",
     `Bien cordialement,\n\n${signature}`
@@ -656,14 +657,21 @@ function redigerMail(k, c, rapport, lien, signature){
   return { objet, corps, donnees: { detectes: cp.detectes, publics_etablis: cp.publics_etablis, points_attention: cp.points_attention, composition_mixte: mixte,
     formulation_nombre: nb.texte, references: refs.map(r => r.code).filter(Boolean), reference_citee: ref ? ref.code : null, version_rapport: rapport.version } };
 }
+// Phrase de réassurance après le lien : vérification possible par téléphone ou e-mail, sans cliquer
+function phraseSecurite(ct, lien){
+  if(!ct || (!ct.telephone && !ct.email)) return null;
+  const moyens = [ct.telephone ? `appelez-moi au ${ct.telephone}` : null, ct.email ? `écrivez-moi à ${ct.email}` : null].filter(Boolean).join(" ou ");
+  return `Par prudence, vous hésitez à cliquer ? ${moyens.charAt(0).toUpperCase() + moyens.slice(1)} : je vous confirmerai que vous pouvez le faire en toute sécurité. Le lien ouvre une simple page de consultation, sans identifiant ni mot de passe.`;
+}
 // Relance — courte, même destinataire et même lien que le mail initial ; aucun chiffre
-function redigerRelance(parent, k, commune, signature){
+function redigerRelance(parent, k, commune, signature, ct){
   const F = k.genre === "F", civ = F ? "Madame" : "Monsieur", nomA = k.nom_appel || nomAppelAuto(k.nom);
   const corps = [
     `${civ} ${nomA},`,
     `Je me permets de revenir vers vous au sujet de l'état des lieux cartographique des plans d'eau de ${commune}, que je vous ai adressé le ${dateFr(parent.envoye_le)}.`,
     `Le rapport, préparé gratuitement pour votre commune, reste accessible ici :`,
     parent.lien_rapport,
+    ...(phraseSecurite(ct, parent.lien_rapport) ? [phraseSecurite(ct, parent.lien_rapport)] : []),
     "Si ce sujet relève plutôt d'un autre membre du Collège ou d'un service communal, je vous serais reconnaissant de bien vouloir me l'indiquer.",
     "Je reste à votre disposition pour une rencontre, gratuite et sans engagement.",
     `Bien cordialement,\n\n${signature}`
@@ -824,7 +832,7 @@ async function viewCourriel(id){
     if(!k) return toast("Contact introuvable", "ko");
     try{
       const signature = ((await params("signature_courriel")).texte) || "François-Xavier Despret\nAquiklin";
-      const r = redigerRelance(m, k, c.nom, signature);
+      const r = redigerRelance(m, k, c.nom, signature, ct);
       const [n] = await q(DB.from("oc_commune_messages").insert({ commune_ins: m.commune_ins, contact_id: m.contact_id, report_id: m.report_id, objet: r.objet, corps: r.corps,
         destinataire_email: m.destinataire_email, cc_contact_id: m.cc_contact_id, cc_email: m.cc_email, lien_rapport: m.lien_rapport,
         donnees: { ...(m.donnees || {}), references: [], reference_citee: null }, sites: m.sites || [], campaign_id: m.campaign_id || null,
