@@ -21,7 +21,7 @@ window.OC_CONFIG = {
   SB_URL: "https://dnunawdqljlvkhwvwxxa.supabase.co",
   SB_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRudW5hd2RxbGpsdmtod3Z3eHhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2NzQ1MzgsImV4cCI6MjA5MjI1MDUzOH0.4m_Cm8T2OcGs43FX3aWu6ZvDUev_Y-qjxmWbSkvUaRQ",   // clé publique « anon » (la même que dans l'Observatoire)
   AUTH_STORAGE_KEY: "aquiklin-oc-auth",       // distinct de l'Observatoire actuel
-  VERSION: "0.8.2 – pilote",
+  VERSION: "0.8.4 – pilote",
   RAPPORT_BASE: "https://rapport.aquiklin.be"
 };
 </script>
@@ -168,6 +168,8 @@ function mailHtml(corps, lien, commune){
     + `<p style="margin:0 0 4px;font-size:13px;color:#555555">Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur :</p>`
     + `<p style="margin:0 0 14px;font-size:13px;word-break:break-all"><a href="${esc(lien)}" style="color:#3f6b4f">${esc(lien)}</a></p>`;
   const paras = paras1.map(p => {
+    if(/^Vos coordonnées professionnelles proviennent/.test(p.trim()))
+      return `<p style="margin:18px 0 0;font-size:11.5px;line-height:1.4;color:#777777;border-top:1px solid #e3e3e3;padding-top:8px">${esc(p.trim()).replace(/(https:\/\/[^\s]+)/, '<a href="$1" style="color:#777777">$1</a>')}</p>`;
     if(lien && p.trim() === lien) return bouton;
     if(lien && p.includes(lien)){ const avant = p.replace(lien, "").trim(); return (avant ? `<p style="margin:0 0 8px">${esc(avant).replace(/\n/g, "<br>")}</p>` : "") + bouton; }
     return `<p style="margin:0 0 14px">${esc(p).replace(/\n/g, "<br>")}</p>`; });
@@ -667,7 +669,8 @@ function redigerMail(k, c, rapport, lien, signature){
     ...(phraseSecurite(c.contact, lien) ? [phraseSecurite(c.contact, lien)] : []),
     ...(ref ? [`L'enjeu est réel : ${ref.formulation.trim().replace(/[.…\s]+$/, "")}.`] : []),
     "Ce rapport constitue une première lecture cartographique ; il ne remplace pas une observation de terrain ni, lorsque cela s'avère nécessaire, une analyse de l'eau. Si certains éléments retiennent votre attention, je vous propose une rencontre, gratuite et sans engagement, pour les parcourir ensemble.",
-    `Bien cordialement,\n\n${signature}`
+    `Bien cordialement,\n\n${signature}`,
+    MENTION_RGPD
   ].join("\n\n");
   return { objet, corps, donnees: { detectes: cp.detectes, publics_etablis: cp.publics_etablis, points_attention: cp.points_attention, composition_mixte: mixte,
     formulation_nombre: nb.texte, references: refs.map(r => r.code).filter(Boolean), reference_citee: ref ? ref.code : null, version_rapport: rapport.version } };
@@ -678,6 +681,8 @@ function phraseSecurite(ct, lien){
   const moyens = [ct.telephone ? `appelez-moi au ${ct.telephone}` : null, ct.email ? `écrivez-moi à ${ct.email}` : null].filter(Boolean).join(" ou ");
   return `Vous hésitez à cliquer ? ${moyens.charAt(0).toUpperCase() + moyens.slice(1)} : je vous confirmerai que vous pouvez le faire en toute sécurité.`;
 }
+// Mention RGPD en pied de mail : origine des données, refus, lien vers la page vie privée
+const MENTION_RGPD = "Vos coordonnées professionnelles proviennent du site internet de votre commune. Si vous ne souhaitez plus recevoir de message de notre part, il vous suffit de me l'indiquer par simple retour de mail. Plus d'informations : https://www.aquiklin.be/vie-privee.html";
 // Relance — courte, même destinataire et même lien que le mail initial ; aucun chiffre
 function redigerRelance(parent, k, commune, signature, ct){
   const F = k.genre === "F", civ = F ? "Madame" : "Monsieur", nomA = k.nom_appel || nomAppelAuto(k.nom);
@@ -689,7 +694,8 @@ function redigerRelance(parent, k, commune, signature, ct){
     ...(phraseSecurite(ct, parent.lien_rapport) ? [phraseSecurite(ct, parent.lien_rapport)] : []),
     "Si ce sujet relève plutôt d'un autre membre du Collège ou d'un service communal, je vous serais reconnaissant de bien vouloir me l'indiquer.",
     "Je reste à votre disposition pour une rencontre, gratuite et sans engagement.",
-    `Bien cordialement,\n\n${signature}`
+    `Bien cordialement,\n\n${signature}`,
+    MENTION_RGPD
   ].join("\n\n");
   return { objet: parent.objet, corps };
 }
@@ -708,12 +714,16 @@ async function ongletCourriels(){
   const bourgK = ks.find(k => k.fonction === "Bourgmestre" && !k.opposition_contact);
   const bourg = bourgK && bourgK.verifie && bourgK.email_verifie && bourgK.email ? bourgK : null;
   const bourgManque = bourgK ? [!bourgK.verifie && "cocher « Nom et fonction vérifiés »", !bourgK.email ? "indiquer l'e-mail" : !bourgK.email_verifie && "cocher « E-mail vérifié »"].filter(Boolean) : ["aucun bourgmestre enregistré"];
-  const pret = k => k.verifie && k.genre && k.genre_verifie && k.competence_courrier && k.competence_verifiee && k.email && k.email_verifie;
+  const libDom = u => { try{ const h = new URL(/^https?:/.test(u) ? u : "https://" + u).hostname.replace(/^www\./, "").split("."); return h.length > 1 ? h[h.length - 2] : null; }catch(e){ return null; } };
+  const sourceOk = k => !!k.email_source_url && !!COM.site_web && libDom(k.email_source_url) === libDom(COM.site_web);
+  const pret = k => k.verifie && k.genre && k.genre_verifie && k.competence_courrier && k.competence_verifiee && k.email && k.email_verifie && sourceOk(k);
   const manque = k => [
     !k.verifie && "cocher « Nom et fonction vérifiés »",
     !k.genre ? "choisir Madame ou Monsieur" : !k.genre_verifie && "cocher « genre vérifié »",
     !k.competence_courrier ? "écrire la compétence" : !k.competence_verifiee && "cocher « compétence vérifiée »",
-    !k.email ? "indiquer l'e-mail" : !k.email_verifie && "cocher « E-mail vérifié »"].filter(Boolean);
+    !k.email ? "indiquer l'e-mail" : !k.email_verifie && "cocher « E-mail vérifié »",
+    k.email && !k.email_source_url ? "indiquer la page du site communal où l'adresse a été trouvée"
+      : k.email && !sourceOk(k) && "la page source n'est pas sur le site officiel de la commune"].filter(Boolean);
   $("#ocontent").innerHTML = `<div class="grid g2"><div>
     <div class="card"><h2>1 · Rapport communal</h2>
       ${rap ? `<p class="small"><span class="pill ok">version ${rap.version}</span> publiée le ${dateFr(rap.publie_le)}${rap.contenu.carte ? "" : ` <span class="pill warn">ancienne présentation, sans carte : générez une nouvelle version</span>`} · ${rap.contenu.compteurs.detectes} pièces d'eau · ${rap.contenu.compteurs.points_attention} point(s) d'attention</p>` : `<p class="small"><span class="pill warn">aucun rapport</span> il sera généré automatiquement à la préparation du mail.</p>`}
